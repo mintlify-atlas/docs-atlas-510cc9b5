@@ -1,0 +1,536 @@
+---
+title: "API Admin de Solicitudes de Crédito — Comfaca Créditos"
+sidebarTitle: "Solicitudes Admin"
+description: "Endpoints administrativos para gestionar solicitudes de crédito: listar con filtros, cambiar estados, iniciar firmado y gestionar firmantes."
+---
+
+El grupo de endpoints administrativos de solicitudes otorga a los usuarios con rol **administrador** control total sobre el ciclo de vida de las solicitudes de crédito en Comfaca Créditos en Línea. Desde este panel es posible consultar el historial completo con su timeline, actualizar campos del expediente, cambiar el estado de la solicitud con trazabilidad automática, iniciar el proceso de firma digital y administrar la lista de firmantes asociados.
+
+<Warning>
+  Todos los endpoints de esta sección requieren una sesión activa con **rol administrador**. Las peticiones sin sesión o con rol insuficiente recibirán un error `401 Unauthorized` o `403 Forbidden`.
+</Warning>
+
+---
+
+## GET /api/admin/solicitudes
+
+Lista todas las solicitudes de crédito con soporte de paginación y filtros opcionales.
+
+### Query Parameters
+
+<ParamField query="estado" type="string">
+  Filtra las solicitudes por estado. Valores posibles: `POSTULADO`, `DOCUMENTOS_CARGADOS`, `ENVIADO_VALIDACION`, `APROBADA`, `RECHAZADA`, `DESESTIMADA`, `CANCELADA`, `DESISTE`, `PENDIENTE_FIRMADO`, `FIRMADO`.
+</ParamField>
+
+<ParamField query="limit" type="number" default="20">
+  Número máximo de solicitudes a devolver por página. Debe ser un entero positivo.
+</ParamField>
+
+<ParamField query="skip" type="number" default="0">
+  Número de solicitudes a omitir para la paginación (offset). Debe ser un entero no negativo.
+</ParamField>
+
+<ParamField query="fecha_desde" type="string">
+  Fecha de inicio del rango de búsqueda en formato ISO 8601 (`YYYY-MM-DD`).
+</ParamField>
+
+<ParamField query="fecha_hasta" type="string">
+  Fecha de fin del rango de búsqueda en formato ISO 8601 (`YYYY-MM-DD`).
+</ParamField>
+
+<ParamField query="search" type="string">
+  Búsqueda de texto libre sobre `numero_solicitud`, `owner_username` o `numero_documento` del solicitante.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` cuando la operación se ejecuta correctamente.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Mensaje descriptivo del resultado (`"Solicitudes obtenidas exitosamente"`).
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="Estructura del objeto data">
+    <ResponseField name="collection" type="array">
+      Array de objetos `SolicitudAdmin`. Ver estructura completa en la sección de tipos.
+    </ResponseField>
+    <ResponseField name="pagination" type="object">
+      <Expandable title="Campos de paginación">
+        <ResponseField name="page" type="number">Número de página actual.</ResponseField>
+        <ResponseField name="page_size" type="number">Tamaño de la página.</ResponseField>
+        <ResponseField name="total" type="number">Total de solicitudes que coinciden con los filtros.</ResponseField>
+        <ResponseField name="total_pages" type="number">Total de páginas disponibles.</ResponseField>
+        <ResponseField name="has_next" type="boolean">Indica si hay una página siguiente.</ResponseField>
+        <ResponseField name="has_prev" type="boolean">Indica si hay una página anterior.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash
+curl -X GET "https://app.comfaca.com/api/admin/solicitudes?estado=APROBADA&limit=10&skip=0" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+---
+
+## GET /api/admin/solicitudes/:id
+
+Obtiene el detalle completo de una solicitud de crédito incluyendo el payload del solicitante, la lista de documentos adjuntos, el timeline de cambios de estado y los firmantes asociados.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` único que identifica la solicitud. Ejemplo: `SOL-2024-000123`.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Estructura de SolicitudAdmin">
+    <ResponseField name="id" type="string">Identificador interno de la solicitud.</ResponseField>
+    <ResponseField name="numero_solicitud" type="string">Número de solicitud legible.</ResponseField>
+    <ResponseField name="estado" type="string">Estado actual de la solicitud.</ResponseField>
+    <ResponseField name="valor_solicitud" type="number">Monto solicitado en pesos colombianos.</ResponseField>
+    <ResponseField name="plazo_meses" type="number">Plazo del crédito en meses.</ResponseField>
+    <ResponseField name="tipo_credito" type="string">Código del tipo de crédito (máx. 3 caracteres).</ResponseField>
+    <ResponseField name="detalle_modalidad" type="string">Descripción de la modalidad crediticia.</ResponseField>
+    <ResponseField name="owner_username" type="string">Username del solicitante propietario de la solicitud.</ResponseField>
+    <ResponseField name="created_at" type="string">Fecha de creación en ISO 8601.</ResponseField>
+    <ResponseField name="updated_at" type="string">Fecha de última actualización en ISO 8601.</ResponseField>
+    <ResponseField name="solicitante" type="object">
+      <Expandable title="Datos del solicitante">
+        <ResponseField name="nombres" type="string">Nombres del solicitante.</ResponseField>
+        <ResponseField name="apellidos" type="string">Apellidos del solicitante.</ResponseField>
+        <ResponseField name="email" type="string">Correo electrónico.</ResponseField>
+        <ResponseField name="numero_documento" type="string">Número de documento de identidad.</ResponseField>
+        <ResponseField name="tipo_documento" type="string">Tipo de documento (CC, CE, NIT, etc.).</ResponseField>
+        <ResponseField name="telefono_movil" type="string">Teléfono de contacto.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="timeline" type="array">
+      <Expandable title="Entradas del timeline">
+        <ResponseField name="estado" type="string">Estado registrado en este evento.</ResponseField>
+        <ResponseField name="fecha" type="string">Fecha del evento en ISO 8601.</ResponseField>
+        <ResponseField name="detalle" type="string">Descripción detallada del cambio.</ResponseField>
+        <ResponseField name="descripcion" type="string">Nota adicional del administrador.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="documentos" type="array">
+      <Expandable title="Documentos adjuntos">
+        <ResponseField name="id" type="string">ID del documento.</ResponseField>
+        <ResponseField name="nombre_original" type="string">Nombre original del archivo subido.</ResponseField>
+        <ResponseField name="saved_filename" type="string">Nombre del archivo en almacenamiento.</ResponseField>
+        <ResponseField name="tipo_mime" type="string">Tipo MIME del archivo.</ResponseField>
+        <ResponseField name="tamano_bytes" type="number">Tamaño en bytes.</ResponseField>
+        <ResponseField name="created_at" type="string">Fecha de carga.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## PUT /api/admin/solicitudes/:id
+
+Actualiza los campos técnicos y financieros de una solicitud de crédito. Todos los campos son opcionales; solo se actualizan los que se envían en el body.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud a actualizar.
+</ParamField>
+
+### Body
+
+<ParamField body="estado" type="string">
+  Nuevo estado de la solicitud. Use el endpoint `/estado` dedicado para cambios de estado con notificaciones automáticas.
+</ParamField>
+
+<ParamField body="valor_solicitud" type="number">
+  Monto solicitado. Debe ser un número positivo.
+</ParamField>
+
+<ParamField body="plazo_meses" type="number">
+  Plazo del crédito en meses. Entero positivo.
+</ParamField>
+
+<ParamField body="tasa_interes" type="number">
+  Tasa de interés aplicable. Valor no negativo.
+</ParamField>
+
+<ParamField body="producto_tipo" type="string">
+  Código del producto (máx. 2 caracteres).
+</ParamField>
+
+<ParamField body="ha_tenido_credito" type="boolean">
+  Indica si el solicitante ha tenido créditos anteriores con COMFACA.
+</ParamField>
+
+<ParamField body="detalle_modalidad" type="string">
+  Descripción de la modalidad crediticia (máx. 255 caracteres).
+</ParamField>
+
+<ParamField body="tipo_credito" type="string">
+  Código del tipo de crédito (máx. 3 caracteres).
+</ParamField>
+
+<ParamField body="moneda" type="string">
+  Código de moneda ISO 4217 (máx. 3 caracteres). Por defecto `COP`.
+</ParamField>
+
+<ParamField body="cuota_mensual" type="number">
+  Valor de la cuota mensual calculada. No negativo.
+</ParamField>
+
+<ParamField body="fecha_radicado" type="string">
+  Fecha de radicación en formato ISO 8601 (`YYYY-MM-DDTHH:mm:ss.sssZ`).
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Campos retornados">
+    <ResponseField name="numero_solicitud" type="string">Número de solicitud actualizada.</ResponseField>
+    <ResponseField name="estado" type="string">Estado actual tras la actualización.</ResponseField>
+    <ResponseField name="valor_solicitud" type="string">Monto actualizado serializado como string.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## PUT /api/admin/solicitudes/:id/estado
+
+Cambia el estado de una solicitud de crédito. Este endpoint va más allá de una simple actualización: registra automáticamente una entrada en el **timeline** de la solicitud y envía una **notificación en tiempo real** al solicitante con el nuevo estado y el mensaje correspondiente.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud.
+</ParamField>
+
+### Body
+
+<ParamField body="estado" type="string" required>
+  Nuevo estado a asignar. Estados reconocidos con mensajes automáticos:
+  - `APROBADA` — "Tu solicitud de crédito ha sido aprobada."
+  - `DESESTIMADA` — "Tu solicitud de crédito ha sido desestimada por falta de requisitos."
+  - `RECHAZADA` — "Tu solicitud de crédito ha sido rechazada."
+  - `CANCELADA` — "Tu solicitud de crédito ha sido cancelada."
+  - `DESISTE` — "Has desistido de continuar con tu solicitud de crédito."
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Nota adicional del administrador que se adjunta al mensaje del timeline y a la notificación. Útil para explicar el motivo del cambio de estado.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Campos retornados">
+    <ResponseField name="numero_solicitud" type="string">Número de solicitud cuyo estado fue modificado.</ResponseField>
+    <ResponseField name="estado" type="string">Nuevo estado registrado.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash
+curl -X PUT "https://app.comfaca.com/api/admin/solicitudes/SOL-2024-000123/estado" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: nuxt-session=<token>" \
+  -d '{
+    "estado": "APROBADA",
+    "descripcion": "Documentación verificada. Crédito aprobado por comité."
+  }'
+```
+
+```json
+{
+  "success": true,
+  "message": "Estado actualizado exitosamente",
+  "data": {
+    "numero_solicitud": "SOL-2024-000123",
+    "estado": "APROBADA"
+  },
+  "timestamp": "2024-11-15T14:32:10.000Z"
+}
+```
+
+<Note>
+  El cambio de estado registra automáticamente al administrador autenticado (`username`) en la entrada del timeline. Si la sesión no está disponible, se registra como `"sistema"`.
+</Note>
+
+---
+
+## POST /api/admin/solicitudes/:id/iniciar-firmado
+
+Inicia el proceso de firma digital de una solicitud de crédito. Este endpoint reemplaza los firmantes existentes en la base de datos, crea los nuevos registros, invoca el servicio externo de firma digital y actualiza el estado de la solicitud a `PENDIENTE_FIRMADO`.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud a enviar a firma.
+</ParamField>
+
+### Body
+
+<ParamField body="firmantes" type="array" required>
+  Lista de firmantes del proceso. Debe contener al menos un firmante.
+
+  <Expandable title="Estructura de cada firmante">
+    <ParamField body="id" type="string" required>
+      Identificador único del firmante en el sistema externo.
+    </ParamField>
+    <ParamField body="orden" type="number" required>
+      Orden de firma (1 = firma primero). Se asigna automáticamente si no se proporciona.
+    </ParamField>
+    <ParamField body="tipo" type="string">
+      Tipo de firmante. Valor por defecto `"1"`.
+    </ParamField>
+    <ParamField body="nombre_completo" type="string" required>
+      Nombre completo del firmante.
+    </ParamField>
+    <ParamField body="numero_documento" type="string" required>
+      Número de documento de identidad del firmante.
+    </ParamField>
+    <ParamField body="email" type="string" required>
+      Correo electrónico al que se enviará el enlace de firma.
+    </ParamField>
+    <ParamField body="rol" type="string" required>
+      Rol del firmante dentro del proceso (ej. `"deudor"`, `"codeudor"`, `"representante"`).
+    </ParamField>
+    <ParamField body="telefono" type="string">
+      Teléfono de contacto del firmante.
+    </ParamField>
+    <ParamField body="codigo_pais" type="string">
+      Código de país para el teléfono. Por defecto `"57"` (Colombia).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  Datos retornados por el servicio externo de firma digital incluyendo el `transaccion_id` del proceso iniciado.
+</ResponseField>
+
+```bash
+curl -X POST "https://app.comfaca.com/api/admin/solicitudes/SOL-2024-000123/iniciar-firmado" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: nuxt-session=<token>" \
+  -d '{
+    "firmantes": [
+      {
+        "id": "firm-001",
+        "orden": 1,
+        "tipo": "1",
+        "nombre_completo": "Carlos Andrés Pérez",
+        "numero_documento": "10245678",
+        "email": "carlos.perez@correo.com",
+        "rol": "deudor",
+        "telefono": "3001234567",
+        "codigo_pais": "57"
+      },
+      {
+        "id": "firm-002",
+        "orden": 2,
+        "tipo": "1",
+        "nombre_completo": "María Lucía Torres",
+        "numero_documento": "52345678",
+        "email": "maria.torres@correo.com",
+        "rol": "codeudor",
+        "codigo_pais": "57"
+      }
+    ]
+  }'
+```
+
+```json
+{
+  "success": true,
+  "message": "Proceso de firmado iniciado exitosamente",
+  "data": {
+    "transaccion_id": "TXN-2024-ABC123",
+    "estado": "PENDIENTE_FIRMADO",
+    "firmantes_registrados": 2
+  },
+  "timestamp": "2024-11-15T14:45:00.000Z"
+}
+```
+
+<Note>
+  Al ejecutarse correctamente, el estado de la solicitud cambia a `PENDIENTE_FIRMADO` y se registra una entrada en el timeline con el `transaccion_id` del proceso de firma.
+</Note>
+
+---
+
+## GET /api/admin/solicitudes/:id/firmantes
+
+Obtiene la lista de firmantes registrados para una solicitud de crédito, ordenados por el campo `orden` de forma ascendente.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="array">
+  Array de objetos firmante ordenados por `orden`.
+
+  <Expandable title="Estructura de cada firmante">
+    <ResponseField name="id" type="string">ID del firmante (serializado desde BigInt).</ResponseField>
+    <ResponseField name="solicitud_id" type="string">ID de la solicitud asociada.</ResponseField>
+    <ResponseField name="orden" type="number">Orden de firma.</ResponseField>
+    <ResponseField name="tipo" type="string">Tipo de firmante.</ResponseField>
+    <ResponseField name="nombre_completo" type="string">Nombre completo del firmante.</ResponseField>
+    <ResponseField name="numero_documento" type="string">Número de documento.</ResponseField>
+    <ResponseField name="email" type="string">Correo electrónico del firmante.</ResponseField>
+    <ResponseField name="rol" type="string">Rol en el proceso de firma.</ResponseField>
+    <ResponseField name="created_at" type="string">Fecha de creación en ISO 8601.</ResponseField>
+    <ResponseField name="updated_at" type="string">Fecha de última modificación en ISO 8601.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## DELETE /api/admin/solicitudes/:id/firmantes
+
+Elimina un firmante específico de una solicitud de crédito. Requiere el `firmanteId` en el body de la petición.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud.
+</ParamField>
+
+### Body
+
+<ParamField body="firmanteId" type="string" required>
+  ID numérico del firmante a eliminar (se recibe como string y se convierte a BigInt internamente).
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="null">
+  `null` cuando la eliminación es exitosa.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Firmante eliminado exitosamente"` cuando la operación concluye sin errores.
+</ResponseField>
+
+---
+
+## GET /api/admin/solicitudes/estados-count
+
+Devuelve un conteo rápido de solicitudes agrupadas por estado. Ideal para renderizar badges y resúmenes estadísticos en el panel de administración sin cargar el listado completo.
+
+### Query Parameters
+
+No acepta parámetros de consulta.
+
+### Response
+
+<ResponseField name="data" type="object">
+  Objeto plano donde cada clave es un estado y su valor es la cantidad de solicitudes en ese estado.
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "message": "Conteo por estados obtenido",
+  "data": {
+    "POSTULADO": 12,
+    "DOCUMENTOS_CARGADOS": 8,
+    "ENVIADO_VALIDACION": 5,
+    "APROBADA": 34,
+    "PENDIENTE_FIRMADO": 3,
+    "FIRMADO": 27,
+    "RECHAZADA": 6,
+    "DESESTIMADA": 2,
+    "CANCELADA": 1,
+    "DESISTE": 4
+  },
+  "timestamp": "2024-11-15T15:00:00.000Z"
+}
+```
+
+<Tip>
+  Usa `GET /api/admin/solicitudes/estados-count` como consulta ligera para refrescar los contadores del dashboard cada cierto intervalo. Es más eficiente que consultar el endpoint de listado completo solo para obtener totales.
+</Tip>
+
+---
+
+## Tipo `SolicitudAdmin`
+
+Estructura TypeScript completa que representa una solicitud en el contexto administrativo:
+
+```typescript
+interface SolicitudAdmin {
+  id: string
+  created_at: string
+  updated_at: string
+  estado: string
+  valor_solicitud?: number
+  plazo_meses?: number
+  numero_solicitud?: string
+  tipcre?: string
+  tipo_credito?: string
+  detalle_modalidad?: string
+  owner_username: string
+  payload?: {
+    informacion_laboral?: InformacionLaboral
+    ingresos_descuentos?: IngresosDescuentos
+    informacion_economica?: InformacionEconomica
+    linea_credito?: LineaCreditoSimulador
+  }
+  timeline: Array<{
+    estado: string
+    fecha: string
+    detalle?: string
+    descripcion?: string
+  }>
+  documentos?: Array<{
+    id: string
+    documento_requerido_id: string
+    nombre_original: string
+    saved_filename: string
+    tipo_mime: string
+    tamano_bytes: number
+    created_at: string
+  }>
+  solicitante?: {
+    email: string
+    nombres: string
+    apellidos: string
+    numero_documento: string
+    telefono_movil: string
+    tipo_documento: string
+  }
+}
+```
+
+## Filtros disponibles (`FiltrosSolicitudes`)
+
+```typescript
+interface FiltrosSolicitudes {
+  fecha_desde?: string
+  fecha_hasta?: string
+  rango_fechas?: { inicio: string; fin: string }
+  numero_documento?: string
+  nombre_usuario?: string
+  owner_username?: string
+  estados?: string[]
+  numero_solicitud?: string
+  monto_minimo?: number
+  monto_maximo?: number
+  skip?: number
+  limit?: number
+  ordenar_por?: string
+  orden_direccion?: "asc" | "desc"
+}
+```

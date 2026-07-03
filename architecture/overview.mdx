@@ -1,0 +1,168 @@
+---
+title: "Arquitectura de Comfaca Créditos en Línea"
+sidebarTitle: "Vista General"
+description: "Diagrama y descripción de la arquitectura full-stack de Comfaca Créditos: capas de front-end, servidor Nitro, base de datos y servicios externos."
+---
+
+**Comfaca Créditos en Línea** es una aplicación full-stack construida sobre **Nuxt 4** con el motor de servidor **Nitro**. El código del cliente (Vue 3 + Nuxt UI) y el del servidor (rutas API, middleware y servicios) conviven en el mismo repositorio y se despliegan como un único artefacto `node-server`. Esta arquitectura monolítica simplifica el despliegue en servidores VPS sin necesidad de un backend separado.
+
+---
+
+## Capas de la Aplicación
+
+La aplicación se divide en tres capas bien delimitadas que interactúan entre sí a través de la capa de transporte HTTP.
+
+### Frontend (Vue 3 + Nuxt UI)
+
+La interfaz de usuario reside bajo el directorio `app/` siguiendo la convención de Nuxt 4:
+
+| Directorio | Contenido |
+|---|---|
+| `app/pages/` | Páginas de la aplicación (enrutamiento automático por archivo) |
+| `app/components/` | Componentes Vue reutilizables |
+| `app/composables/` | Composables reactivos (`useSession`, `useSolicitud`, etc.) |
+| `app/layouts/` | Layouts base (`default.vue`, `auth.vue`, `dash.vue`, `admin.vue`) |
+| `app/middleware/` | Middleware de navegación del cliente (protección de rutas) |
+| `app/config/` | Configuración de permisos y rutas protegidas |
+
+Los estilos globales se importan desde `app/assets/css/main.css` mediante la clave `css` de `nuxt.config.ts`. El alias `@` apunta al directorio `app/`.
+
+### Servidor (Nitro)
+
+El servidor corre sobre **Nitro** en modo `node-server`. Todos sus artefactos se encuentran bajo `server/`:
+
+| Directorio | Contenido |
+|---|---|
+| `server/api/` | Rutas API (`.get.ts`, `.post.ts`, `.put.ts`, `.delete.ts`) |
+| `server/middleware/` | Middleware de servidor: autenticación, autorización y validaciones |
+| `server/services/` | Servicios de dominio (auth, solicitud, convenio, notificaciones, PDF, SFTP…) |
+| `server/utils/` | Utilidades de servidor (`customResponse`, `logger.service`, etc.) |
+| `server/nohup/` | Daemon independiente para consulta periódica a FirmaPlus |
+
+El servidor también expone contexto asíncrono mediante `nitro.experimental.asyncContext: true`, lo que permite acceder al `event` de H3 desde servicios anidados sin pasarlo explícitamente.
+
+### Base de Datos (Prisma + MariaDB)
+
+La capa de persistencia utiliza **Prisma ORM** con una base de datos **MariaDB**:
+
+| Artefacto | Ubicación |
+|---|---|
+| Cliente Prisma | `lib/prisma.ts` (singleton) |
+| Esquema del modelo | `prisma/schema.prisma` |
+| Migraciones | `prisma/migrations/` |
+| Seeders | `prisma/seeders/` |
+
+El `DATABASE_ENV` en `runtimeConfig` determina qué URL de conexión se usa (`DATABASE_URL_DEV` o `DATABASE_URL_PRO`).
+
+---
+
+## Rutas de la Aplicación
+
+| Ruta | Descripción |
+|---|---|
+| `/` | Página pública de inicio |
+| `/login` | Formulario de inicio de sesión |
+| `/registro` | Registro de nuevos afiliados |
+| `/verify` | Verificación de cuenta por código PIN |
+| `/dash/*` | Dashboard del afiliado (requiere autenticación) |
+| `/admin/*` | Panel administrativo (requiere rol `administrator`) |
+| `/firma/:token` | Página pública de firma digital (token temporal) |
+
+<Note>
+  Las rutas bajo `/dash/*` y `/admin/*` son protegidas tanto por el middleware del cliente (`app/middleware/auth.ts`) como por el middleware del servidor (`server/middleware/auth.ts` y `server/middleware/admin.ts`).
+</Note>
+
+---
+
+## Servicios del Servidor
+
+Los servicios se instancian como funciones factoría (`serviceFactory()`) para facilitar las pruebas unitarias y la inyección de dependencias.
+
+| Servicio | Archivo | Responsabilidad |
+|---|---|---|
+| `authService` | `auth.service.ts` | Login, registro, verificación PIN, JWT |
+| `solicitudService` | `solicitud.service.ts` | Ciclo de vida de solicitudes de crédito |
+| `convenioService` | `convenio.service.ts` | Gestión de empresas convenio |
+| `notificationService` | `notification.service.ts` | Envío de notificaciones por correo |
+| `pdfServices` | `services/pdf/` | Generación y descarga de PDFs de solicitud |
+| `documentoStorage` | `storage/documento-storage.service.ts` | Lectura/escritura local de documentos |
+| `sftpClientService` | `shared/sftp-client.service.ts` | Transferencia de archivos por SFTP |
+| `apiFirmaPlus` | `api-firmaplus.ts` | Integración con la plataforma de firma digital FirmaPlus |
+| `apiSisuweb` | `api-sisuweb.ts` | Consulta de datos de trabajadores y asesores en SISUWEB |
+| `apiFlaskPdf` | `api-flaskpdf.ts` | Generación de PDFs mediante microservicio Flask |
+
+---
+
+## Directivas de Rutas
+
+La clave `routeRules` en `nuxt.config.ts` controla el comportamiento de renderizado por ruta:
+
+```ts
+// nuxt.config.ts
+routeRules: {
+  "/dash/**": { isr: false }
+}
+```
+
+`isr: false` en `/dash/**` deshabilita el *Incremental Static Regeneration* para todas las páginas del dashboard del afiliado, garantizando que siempre se sirvan como SSR dinámico (nunca desde caché estática).
+
+El bloque `nitro.prerender` excluye explícitamente las rutas autenticadas del proceso de pre-renderizado en build:
+
+```ts
+// nuxt.config.ts
+nitro: {
+  prerender: {
+    routes: [],
+    ignore: ["/dashboard", "/dashboard/**", "/admin/**", "/dash/**"],
+    crawlLinks: false,
+    failOnError: false
+  }
+}
+```
+
+---
+
+## Módulo nohup (Daemon)
+
+El directorio `server/nohup/` contiene un **proceso independiente** de Node.js que no requiere que el servidor Nuxt esté en ejecución. Su único propósito actual es consultar periódicamente la API de **FirmaPlus** para monitorear el estado de las solicitudes de crédito enviadas a firma digital.
+
+**Ciclo de trabajo:**
+
+1. Arranca con `tsx server/nohup/app.ts` (o `pnpm nohup:firmas:daemon` en segundo plano).
+2. Consulta en base de datos todas las solicitudes con `estado = "PENDIENTE_FIRMADO"`.
+3. Por cada solicitud lanza un `Worker` de Node.js (`consultar-firma.worker.ts`) que llama a `GET consultarsolicitud/{numero_solicitud}` en FirmaPlus.
+4. Registra el resultado en `storage/logs/app.log`.
+5. Espera **5 minutos** (`INTERVAL_MS = 5 * 60 * 1000`) y repite el ciclo.
+
+```
+app.ts (loop principal)
+  │
+  ├─ Prisma: findMany estado = PENDIENTE_FIRMADO
+  │
+  └─ for secuencial ──► Worker (consultar-firma.worker.ts)
+                          │
+                          └─ apiFirmaPlus → consultarsolicitud/{numero_solicitud}
+```
+
+<Note>
+  El daemon solo consulta y registra en logs. No modifica estados en la base de datos en la implementación actual. La lógica de transición de estados puede añadirse en `workers/consultar-firma.worker.ts` sin alterar el loop principal.
+</Note>
+
+---
+
+<CardGroup cols={2}>
+  <Card
+    title="Autenticación y Autorización"
+    icon="lock"
+    href="/architecture/authentication"
+  >
+    Flujo JWT, sesiones con nuxt-auth-utils, middleware de servidor y protección de rutas.
+  </Card>
+  <Card
+    title="Almacenamiento de Archivos"
+    icon="folder-open"
+    href="/architecture/file-storage"
+  >
+    Uploads locales, servicio SFTP, tipos MIME permitidos y rutas de acceso a documentos.
+  </Card>
+</CardGroup>

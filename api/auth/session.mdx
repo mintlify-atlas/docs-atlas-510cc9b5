@@ -1,0 +1,237 @@
+---
+title: "Gestión de Sesión: GET /api/auth/me y POST /api/auth/logout"
+sidebarTitle: "Sesión"
+description: "Consulta el usuario autenticado actualmente con GET /api/auth/me, cierra sesión con POST /api/auth/logout y recupera contraseña con POST /api/auth/recovery."
+---
+
+Una vez que el afiliado inicia sesión mediante [`POST /api/auth/login`](/api/auth/login), el servidor establece una **cookie de sesión HTTP firmada** con una duración de **8 horas** (`maxAge: 60 * 60 * 8`). Esta cookie es enviada automáticamente por el navegador en cada petición subsiguiente, permitiendo a la API identificar al usuario autenticado a través de `event.context.user`.
+
+Esta página documenta los tres endpoints de gestión de sesión: consultar la sesión activa, cerrarla y recuperar contraseña olvidada.
+
+---
+
+## GET /api/auth/me
+
+Devuelve los datos del usuario autenticado en la sesión actual. El middleware global de la aplicación inyecta el usuario en `event.context.user` antes de que llegue al handler; si la sesión no existe o expiró, el endpoint responde con `401`.
+
+**Autenticación:** Requiere cookie de sesión válida.
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  `true` cuando hay una sesión activa válida.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Usuario autenticado"` en caso de éxito.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Objeto que contiene la información del usuario de la sesión.
+
+  <Expandable title="Propiedades de data">
+    <ResponseField name="data.user" type="object">
+      Datos del usuario autenticado actualmente.
+
+      <Expandable title="Propiedades de user">
+        <ResponseField name="data.user.username" type="string">
+          Nombre de usuario único.
+        </ResponseField>
+        <ResponseField name="data.user.email" type="string">
+          Correo electrónico del usuario (en mayúsculas).
+        </ResponseField>
+        <ResponseField name="data.user.nombres" type="string">
+          Nombres del afiliado (en mayúsculas).
+        </ResponseField>
+        <ResponseField name="data.user.apellidos" type="string">
+          Apellidos del afiliado (en mayúsculas).
+        </ResponseField>
+        <ResponseField name="data.user.tipo_documento" type="string">
+          Código del tipo de documento, por ejemplo `"CC"`.
+        </ResponseField>
+        <ResponseField name="data.user.numero_documento" type="string">
+          Número de documento de identidad.
+        </ResponseField>
+        <ResponseField name="data.user.telefono" type="string">
+          Teléfono móvil del afiliado.
+        </ResponseField>
+        <ResponseField name="data.user.roles" type="string[]">
+          Lista de roles asignados al usuario (ej. `["afiliado"]`, `["administrator"]`).
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `401` | Sin sesión | No hay cookie de sesión o la sesión ha expirado. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X GET http://localhost:4000/api/auth/me \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Usuario autenticado",
+  "data": {
+    "user": {
+      "username": "juan.perez",
+      "email": "JUAN.PEREZ@EMPRESA.COM",
+      "nombres": "JUAN CARLOS",
+      "apellidos": "PÉREZ GÓMEZ",
+      "tipo_documento": "CC",
+      "numero_documento": "1012345678",
+      "telefono": "3001234567",
+      "roles": ["afiliado"]
+    }
+  }
+}
+```
+
+### Ejemplo — Error `401`
+
+```json
+{
+  "success": false,
+  "message": "No autenticado",
+  "error": "No autenticado"
+}
+```
+
+---
+
+## POST /api/auth/logout
+
+Cierra la sesión del usuario autenticado limpiando la cookie de sesión del servidor mediante `clearUserSession`. Después de esta llamada, cualquier petición que requiera autenticación devolverá `401` hasta que el usuario vuelva a hacer login.
+
+**Autenticación:** Requiere cookie de sesión válida (aunque puede llamarse sin sesión activa sin causar error).
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  Siempre `true` en la respuesta de logout exitoso.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Sesión cerrada correctamente"`.
+</ResponseField>
+
+<ResponseField name="data" type="null">
+  Siempre `null`.
+</ResponseField>
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/auth/logout \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt \
+  -c cookies.txt
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Sesión cerrada correctamente",
+  "data": null
+}
+```
+
+<Note>
+  Después de llamar a este endpoint, elimina el archivo de cookies local (`cookies.txt`) si usas cURL, o borra la cookie `nuxt-session` de tu cliente HTTP para garantizar que no se envíe en futuras peticiones.
+</Note>
+
+---
+
+## POST /api/auth/recovery
+
+Inicia el proceso de recuperación de contraseña para un afiliado que olvidó sus credenciales. El endpoint envía un email al correo registrado del usuario con un enlace o código para restablecer la contraseña.
+
+**Autenticación:** No requiere autenticación previa.
+
+### Cuerpo de la petición
+
+El cuerpo es leído directamente con `readBody` (sin validación Zod estricta en este handler). Se recomienda enviar los siguientes campos:
+
+<ParamField body="email" type="string">
+  Correo electrónico asociado a la cuenta. El servicio de recuperación usa este campo para identificar al usuario.
+</ParamField>
+
+<ParamField body="username" type="string">
+  Nombre de usuario alternativo para identificar la cuenta cuando no se dispone del email.
+</ParamField>
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  `true` cuando el proceso de recuperación fue iniciado y el email fue enviado.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmación del envío del email de recuperación.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Datos de confirmación del proceso de recuperación devueltos por el backend.
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `404` | Usuario no encontrado | No existe un usuario con el email o username proporcionado. |
+| `502` | Error de backend | Fallo al conectar con el servicio de autenticación o al enviar el email. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/auth/recovery \
+  -H 'Content-Type: application/json' \
+  -d '{"email": "juan.perez@empresa.com"}'
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Se ha enviado un enlace de recuperación a su correo registrado."
+  }
+}
+```
+
+---
+
+## Duración de la sesión
+
+La sesión de Comfaca Créditos tiene una duración de **8 horas** configuradas en `nuxt.config.ts`:
+
+```typescript
+nuxtSession: {
+  maxAge: 60 * 60 * 8  // 8 horas en segundos = 28 800 segundos
+}
+```
+
+| Parámetro | Valor |
+|-----------|-------|
+| Duración máxima | 8 horas |
+| Mecanismo | Cookie HTTP `nuxt-session` firmada con JWT |
+| Renovación | No automática — el usuario debe volver a hacer login al expirar |
+| Cierre explícito | `POST /api/auth/logout` |
+
+<Warning>
+  Las sesiones **no se renuevan automáticamente**. Si el afiliado realiza una petición con una sesión expirada, recibirá un `401`. La aplicación frontend debe interceptar estos errores y redirigir al usuario a la pantalla de login.
+</Warning>

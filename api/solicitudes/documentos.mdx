@@ -1,0 +1,320 @@
+---
+title: "API de Documentos de Solicitud en Comfaca Créditos"
+sidebarTitle: "Documentos"
+description: "Gestiona documentos adjuntos de una solicitud: subir, listar, descargar y eliminar archivos con los endpoints /api/solicitudes/:id/documentos."
+---
+
+La gestión documental es un paso crítico en el proceso de aprobación de una solicitud de crédito en Comfaca Créditos. Cada solicitud requiere que el afiliado adjunte un conjunto de documentos específicos (cédula, desprendibles de nómina, certificados, etc.) antes de poder avanzar al estado `ENVIADO_VALIDACION`.
+
+Los archivos son almacenados en el sistema de archivos del servidor bajo `storage/uploads/{solicitud_id}/` y registrados en la tabla `solicitud_documentos` de la base de datos Prisma con sus metadatos: nombre original, nombre guardado (UUID), tipo MIME, tamaño en bytes y ruta de acceso.
+
+Todos los endpoints de esta sección requieren que el usuario autenticado sea el **propietario de la solicitud** (`solicitud.owner_username === session.user.username`). Los administradores pueden descargar documentos de cualquier solicitud.
+
+---
+
+## GET /api/solicitudes/:id/documentos
+
+Lista todos los documentos **activos** adjuntos a una solicitud, ordenados de más reciente a más antiguo.
+
+**Autenticación:** Requiere sesión activa. Solo el propietario puede listar los documentos.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud cuyos documentos se desean listar. Formato: `"000001-202501-LI"`.
+</ParamField>
+
+### Respuesta exitosa `200`
+
+<ResponseField name="data.documentos" type="array">
+  Lista de documentos activos adjuntos a la solicitud.
+
+  <Expandable title="Propiedades de cada documento">
+    <ResponseField name="id" type="string">
+      ID numérico del documento (serializado como string por compatibilidad con BigInt).
+    </ResponseField>
+    <ResponseField name="documento_uuid" type="string">
+      UUID único generado al momento de subir el archivo. Sirve como identificador interno del archivo en disco.
+    </ResponseField>
+    <ResponseField name="solicitud_id" type="string">
+      `numero_solicitud` al que pertenece este documento.
+    </ResponseField>
+    <ResponseField name="documento_requerido_id" type="string">
+      ID del tipo de documento requerido al que corresponde este archivo (ej. cédula, nómina).
+    </ResponseField>
+    <ResponseField name="nombre_original" type="string">
+      Nombre original del archivo tal como fue enviado por el cliente (ej. `"cedula_frente.pdf"`).
+    </ResponseField>
+    <ResponseField name="saved_filename" type="string">
+      Nombre con el que fue guardado en disco, en formato `"{uuid}.{extension}"` (ej. `"a1b2c3d4-....pdf"`).
+    </ResponseField>
+    <ResponseField name="tipo_mime" type="string">
+      Tipo MIME del archivo (ej. `"application/pdf"`, `"image/jpeg"`).
+    </ResponseField>
+    <ResponseField name="tamano_bytes" type="string">
+      Tamaño del archivo en bytes, serializado como string.
+    </ResponseField>
+    <ResponseField name="ruta_archivo" type="string">
+      Ruta relativa del archivo en el servidor (ej. `"/storage/uploads/000001-202501-LI/a1b2c3d4.pdf"`).
+    </ResponseField>
+    <ResponseField name="activo" type="boolean">
+      `true` si el documento está activo (no eliminado lógicamente).
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      Fecha y hora de subida en formato ISO 8601.
+    </ResponseField>
+    <ResponseField name="updated_at" type="string">
+      Fecha y hora de la última actualización en formato ISO 8601.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="data.count" type="integer">
+  Número total de documentos activos retornados.
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | ID ausente | No se proporcionó el parámetro `id`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `403` | Sin permisos | La solicitud pertenece a otro usuario. |
+| `404` | No encontrada | No existe la solicitud con ese `id`. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X GET http://localhost:4000/api/solicitudes/000001-202501-LI/documentos \
+  -b cookies.txt
+```
+
+### Ejemplo — Respuesta `200`
+
+```json
+{
+  "success": true,
+  "message": "Documentos listados exitosamente",
+  "data": {
+    "documentos": [
+      {
+        "id": "42",
+        "documento_uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "solicitud_id": "000001-202501-LI",
+        "documento_requerido_id": "cedula_ciudadania",
+        "nombre_original": "cedula_frente.pdf",
+        "saved_filename": "a1b2c3d4-e5f6-7890-abcd-ef1234567890.pdf",
+        "tipo_mime": "application/pdf",
+        "tamano_bytes": "245760",
+        "ruta_archivo": "/storage/uploads/000001-202501-LI/a1b2c3d4-e5f6-7890-abcd-ef1234567890.pdf",
+        "activo": true,
+        "created_at": "2025-01-16T09:00:00.000Z",
+        "updated_at": "2025-01-16T09:00:00.000Z"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+---
+
+## POST /api/solicitudes/:id/documentos
+
+Sube un nuevo documento adjunto a una solicitud. La petición debe enviarse como `multipart/form-data` con el archivo y el identificador del tipo de documento requerido. El archivo es guardado en disco con un nombre UUID único y registrado en la base de datos.
+
+Formatos de archivo soportados: `jpg`, `jpeg`, `png`, `gif`, `webp`, `pdf`, `doc`, `docx`, `xls`, `xlsx`.
+
+**Autenticación:** Requiere sesión activa. Solo el propietario puede subir documentos.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud a la que se adjuntará el documento.
+</ParamField>
+
+### Cuerpo de la petición (multipart/form-data)
+
+<ParamField body="documento" type="file" required>
+  El archivo a subir. Debe ser uno de los formatos soportados: PDF, imágenes (JPG, PNG, GIF, WEBP) o documentos Office (DOC, DOCX, XLS, XLSX). Si el tipo MIME no puede ser determinado, se usa `application/pdf` por defecto.
+</ParamField>
+
+<ParamField body="documento_requerido_id" type="string" required>
+  ID del tipo de documento requerido al que corresponde este archivo. Identifica qué tipo de documento se está cargando (ej. `"cedula_ciudadania"`, `"desprendible_nomina"`, `"carta_laboral"`).
+</ParamField>
+
+### Respuesta exitosa `200`
+
+<ResponseField name="data.documentos" type="array">
+  Lista completa y actualizada de todos los documentos activos de la solicitud después de la subida, con los mismos campos descritos en [GET /documentos](#get-apisolicitudesiddocumentos).
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | Sin archivo | No se envió el campo `documento` en el formulario. |
+| `400` | Sin tipo | No se envió el campo `documento_requerido_id`. |
+| `400` | Formulario vacío | El cuerpo de la petición no contiene datos `multipart/form-data`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `403` | Sin permisos | La solicitud pertenece a otro usuario. |
+| `404` | No encontrada | No existe la solicitud con ese `id`. |
+
+### Ejemplo — cURL (subir un PDF)
+
+```bash
+curl -X POST http://localhost:4000/api/solicitudes/000001-202501-LI/documentos \
+  -b cookies.txt \
+  -F "documento=@/ruta/local/cedula_frente.pdf;type=application/pdf" \
+  -F "documento_requerido_id=cedula_ciudadania"
+```
+
+### Ejemplo — cURL (subir una imagen JPG)
+
+```bash
+curl -X POST http://localhost:4000/api/solicitudes/000001-202501-LI/documentos \
+  -b cookies.txt \
+  -F "documento=@/ruta/local/desprendible_enero.jpg;type=image/jpeg" \
+  -F "documento_requerido_id=desprendible_nomina"
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Documento subido exitosamente",
+  "data": {
+    "documentos": [
+      {
+        "id": "43",
+        "documento_uuid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "solicitud_id": "000001-202501-LI",
+        "documento_requerido_id": "desprendible_nomina",
+        "nombre_original": "desprendible_enero.jpg",
+        "saved_filename": "b2c3d4e5-f6a7-8901-bcde-f12345678901.jpg",
+        "tipo_mime": "image/jpeg",
+        "tamano_bytes": "184320",
+        "ruta_archivo": "/storage/uploads/000001-202501-LI/b2c3d4e5-f6a7-8901-bcde-f12345678901.jpg",
+        "activo": true,
+        "created_at": "2025-01-17T14:20:00.000Z",
+        "updated_at": "2025-01-17T14:20:00.000Z"
+      },
+      {
+        "id": "42",
+        "documento_uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "solicitud_id": "000001-202501-LI",
+        "documento_requerido_id": "cedula_ciudadania",
+        "nombre_original": "cedula_frente.pdf",
+        "saved_filename": "a1b2c3d4-e5f6-7890-abcd-ef1234567890.pdf",
+        "tipo_mime": "application/pdf",
+        "tamano_bytes": "245760",
+        "ruta_archivo": "/storage/uploads/000001-202501-LI/a1b2c3d4-e5f6-7890-abcd-ef1234567890.pdf",
+        "activo": true,
+        "created_at": "2025-01-16T09:00:00.000Z",
+        "updated_at": "2025-01-16T09:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+<Tip>
+  La respuesta del upload incluye la lista completa actualizada de documentos (no solo el recién subido). Esto permite al frontend sincronizar el estado local con un solo round-trip.
+</Tip>
+
+---
+
+## GET /api/solicitudes/:id/documentos/:documentoId/descargar
+
+Descarga un documento adjunto a una solicitud como un **stream de archivo**. La respuesta incluye los headers `Content-Type` y `Content-Disposition` para que el navegador la trate como una descarga directa con el nombre original del archivo.
+
+Los **administradores** pueden descargar documentos de cualquier solicitud, independientemente de la propiedad.
+
+**Autenticación:** Requiere sesión activa. El propietario de la solicitud o un administrador pueden descargar.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud.
+</ParamField>
+
+<ParamField path="documentoId" type="string" required>
+  El `id` numérico del documento a descargar (el campo `id` retornado por el endpoint de listado, ej. `"42"`).
+</ParamField>
+
+### Headers de respuesta exitosa
+
+```
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="cedula_frente.pdf"
+```
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | ID ausente | No se proporcionó `id` o `documentoId`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `403` | Sin permisos | El usuario no es propietario ni administrador. |
+| `404` | No encontrada | La solicitud, el documento en BD o el archivo en disco no existen. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X GET http://localhost:4000/api/solicitudes/000001-202501-LI/documentos/42/descargar \
+  -b cookies.txt \
+  -o cedula_frente.pdf
+```
+
+<Note>
+  La bandera `-o cedula_frente.pdf` guarda el stream de respuesta directamente en un archivo local. Si el archivo no existe en el sistema de archivos del servidor (fue eliminado manualmente), el endpoint responde con `404 El archivo no existe en el servidor`.
+</Note>
+
+---
+
+## DELETE /api/solicitudes/:id/documentos/:documentoId
+
+Elimina **permanentemente** un documento de la base de datos. Solo el **propietario** de la solicitud puede eliminar sus documentos.
+
+**Autenticación:** Requiere sesión activa. Solo el propietario puede eliminar documentos.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud.
+</ParamField>
+
+<ParamField path="documentoId" type="string" required>
+  El `id` numérico del documento a eliminar (ej. `"42"`).
+</ParamField>
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Documento eliminado exitosamente",
+  "data": null
+}
+```
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | ID ausente | No se proporcionó `id` o `documentoId`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `403` | Sin permisos | La solicitud pertenece a otro usuario. |
+| `404` | No encontrada | La solicitud o el documento no existen en la base de datos. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X DELETE http://localhost:4000/api/solicitudes/000001-202501-LI/documentos/42 \
+  -b cookies.txt
+```
+
+<Warning>
+  La eliminación del documento es **permanente** — el registro se borra físicamente de la tabla `solicitud_documentos`. El archivo físico en el servidor no es eliminado automáticamente en esta operación; se gestiona por separado en procesos de limpieza de storage.
+</Warning>

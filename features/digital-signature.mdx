@@ -1,0 +1,341 @@
+---
+title: "Firma Digital Electrónica con FirmaPlus en Comfaca Créditos"
+sidebarTitle: "Firma Digital"
+description: "Proceso de firma digital en Comfaca Créditos: integración con FirmaPlus API, firma OTP, monitoreo de estado y daemon nohup para seguimiento."
+---
+
+**Comfaca Créditos en Línea** integra la plataforma **FirmaPlus** para la firma electrónica de los documentos de solicitud de crédito. Una vez que el administrador genera el PDF de la solicitud e inicia el proceso, FirmaPlus envía un enlace OTP a cada firmante. El estado de cada firma es monitoreado en tiempo real desde el panel administrativo y, en segundo plano, por un daemon independiente que consulta FirmaPlus en ciclos de 5 minutos.
+
+---
+
+## Flujo de Firma
+
+<Steps>
+  <Step title="Administrador inicia el firmado">
+    Desde el detalle de la solicitud en el panel admin, el administrador hace clic en **Iniciar firmado**. Esto invoca:
+
+    ```http
+    POST /api/admin/solicitudes/:id/iniciar-firmado
+    Authorization: Bearer <token>
+    ```
+
+    El servidor construye el payload `FirmaPlusRequest` con los firmantes (solicitante y, si aplica, cónyuge y representante del convenio) y lo envía al endpoint `signer` de FirmaPlus.
+  </Step>
+  <Step title="Solicitud pasa a PENDIENTE_FIRMADO">
+    Si FirmaPlus retorna `Code: "1"`, el backend actualiza el estado de la solicitud a `PENDIENTE_FIRMADO` y almacena el `NroSolicitud` devuelto por FirmaPlus como `transaccion_id` del proceso de firmado.
+  </Step>
+  <Step title="FirmaPlus notifica a los firmantes">
+    FirmaPlus envía automáticamente un correo electrónico (y/o SMS, según la configuración) a cada firmante con el enlace único de firma y un código OTP de validación.
+  </Step>
+  <Step title="Afiliado accede a la página pública de firma">
+    El firmante recibe un enlace del tipo `/firma/:token`. Esta página pública no requiere autenticación en la aplicación; el token identifica el proceso y la identidad del firmante ante FirmaPlus.
+  </Step>
+  <Step title="Firmante ingresa el OTP y firma el documento">
+    En la interfaz de FirmaPlus, el firmante valida su identidad con el OTP recibido, revisa el documento y aplica su firma electrónica.
+  </Step>
+  <Step title="Estado actualizado a FIRMADO">
+    Cuando todos los firmantes completan el proceso, FirmaPlus notifica el cambio (vía webhook o consulta activa del daemon). El estado de la solicitud se actualiza a `FIRMADO` y queda lista para continuar el proceso de aprobación.
+  </Step>
+</Steps>
+
+---
+
+## Composable `useFirmadoDigital`
+
+El composable `useFirmadoDigital` encapsula toda la lógica de interacción con los endpoints de firma desde el lado del cliente.
+
+### Estado reactivo
+
+```typescript
+const loading = ref(false);
+const error = ref<string | null>(null);
+const procesoFirmado = ref<FirmadoIniciarResponse["data"] | null>(null);
+const estadoActual = ref<FirmadoEstadoResponse["data"] | null>(null);
+```
+
+### Propiedades computadas
+
+| Propiedad | Descripción |
+|---|---|
+| `enProceso` | `true` cuando `estado === "PENDIENTE_FIRMADO"` |
+| `firmadoCompleto` | `true` cuando `estado === "FIRMADO"` |
+| `firmadoRechazado` | `true` cuando `estado === "RECHAZADO"` |
+| `porcentajeCompletado` | `(firmantes_completados / total) × 100` |
+| `obtenerURLsFirma` | `Record<string, string>` con los URLs de firma por firmante |
+| `mensajeEstado` | Objeto `{ titulo, descripcion, tipo, icono }` según el estado actual |
+| `puedeReintentar` | `true` si el estado es `RECHAZADO` o `EXPIRADO` |
+
+### Métodos principales
+
+```typescript
+// Inicia el proceso de firmado digital
+const iniciarFirmado = async (solicitudId: string): Promise<boolean> => {
+  const response = await api.postJson<FirmadoIniciarResponse>(
+    `/api/solicitudes/${solicitudId}/iniciar-firmado`,
+    {},
+    { auth: true }
+  );
+  if (response.success && response.data) {
+    procesoFirmado.value = response.data;
+    // Inicializa estadoActual con firmantes_completados = 0
+    return true;
+  }
+  return false;
+};
+
+// Consulta el estado actual del proceso
+const consultarEstado = async (
+  solicitudId: string
+): Promise<EstadoFirmado | null> => {
+  const response = await api.getJson<FirmadoEstadoResponse>(
+    `/api/solicitudes/${solicitudId}/estado-firmado`,
+    { auth: true }
+  );
+  if (response.success && response.data) {
+    estadoActual.value = response.data;
+    return response.data.estado as EstadoFirmado;
+  }
+  return null;
+};
+
+// Polling automático — se detiene cuando el proceso finaliza
+const iniciarPolling = (
+  solicitudId: string,
+  intervalo: number = 5000,
+  callback?: (estado: EstadoFirmado) => void
+) => {
+  const intervalId = setInterval(async () => {
+    const estado = await consultarEstado(solicitudId);
+    if (estado && callback) callback(estado);
+    if (estado && ["FIRMADO", "RECHAZADO", "EXPIRADO"].includes(estado)) {
+      clearInterval(intervalId);
+    }
+  }, intervalo);
+  return intervalId;
+};
+```
+
+---
+
+## API FirmaPlus
+
+El servicio `server/services/api-firmaplus.ts` abstrae la comunicación con la plataforma FirmaPlus. Soporta autenticación **Basic** y por **token Bearer**, y en entorno `dev` (`API_FIRMA_ENV=dev`) retorna respuestas mock sin hacer llamadas reales.
+
+### Endpoints expuestos por FirmaPlus
+
+```typescript
+const getEndpoints = () => [
+  { method: "POST", endpoint: "signer" },
+  { method: "POST", endpoint: "generarsolicitud" },
+  { method: "POST", endpoint: "certificar" },
+  { method: "GET",  endpoint: "consultarsolicitud/{id}" },
+  { method: "PUT",  endpoint: "cancelarsolicitud" },
+];
+```
+
+### Autenticación
+
+```typescript
+// Autenticación Basic (tipo por defecto)
+if (type_auth === "Basic") {
+  return Buffer.from(`${basic_user}:${basic_password}`).toString("base64");
+}
+
+// Autenticación por token (Bearer)
+const dataToken = await ofetch(`${url}/token`, {
+  method: "POST",
+  body: { client_id, password }
+});
+```
+
+### Ejemplo — Enviar solicitud al endpoint `signer`
+
+```typescript
+// Desde el servidor Nuxt (server/services/api-firmaplus.ts)
+const firma = apiFirmaPlus(); // usa runtimeConfig automáticamente
+
+const response = await firma.postJson<FirmaPlusSignerResponse>(
+  "signer",
+  {
+    Nota: "Solicitud de crédito COMFACA",
+    Firmantes: [
+      {
+        Identificacion: "1234567890",
+        Nombre: "Juan Pérez",
+        Email: "juan@empresa.com",
+        Rol: "Solicitante"
+      }
+    ]
+  },
+  { auth: true }
+);
+
+// Respuesta exitosa: { Code: "1", Data: { NroSolicitud, Fecha, Link } }
+```
+
+### Respuesta de FirmaPlus
+
+```typescript
+interface FirmaPlusSignerResponse {
+  Code: string;      // "1" = éxito, "0" = error
+  Data?: {
+    NroSolicitud?: string; // ID de transacción en FirmaPlus
+    Fecha?: string;
+    Link?: string;         // URL de firma
+  };
+  Message?: string;
+}
+```
+
+---
+
+## Monitoreo de Firmas
+
+El composable `useMonitoreoFirmasRealTime` es usado en la página `/admin/firmas/monitor` para seguir el estado de todas las solicitudes en proceso de firma desde el panel administrativo.
+
+### Polling automático
+
+El monitor realiza polling cada **30 segundos** de forma silenciosa (sin mostrar indicador de carga):
+
+```typescript
+const pollingInterval = ref(30000); // 30 segundos
+
+const iniciarPolling = () => {
+  pollingTimer = setInterval(() => {
+    if (pollingEnabled.value) {
+      cargarSolicitudes(true); // silencioso = true
+    }
+  }, pollingInterval.value);
+};
+```
+
+### Detección de cambios de estado
+
+En cada ciclo, el composable compara el estado anterior con el nuevo y registra los cambios en `cambiosRecientes` (máximo 10 entradas):
+
+```typescript
+if (estadoAnterior && estadoNuevo && estadoAnterior !== estadoNuevo) {
+  cambiosRecientes.value.unshift({
+    solicitudId: solicitud.numero_solicitud,
+    nombreSolicitante: solicitud.solicitante?.nombres_apellidos || "Sin nombre",
+    estadoAnterior,
+    estadoNuevo,
+    timestamp: new Date()
+  });
+}
+```
+
+### Estadísticas en tiempo real
+
+```typescript
+const estadisticas = computed<EstadisticasFirmas>(() => ({
+  total:                solicitudes.value.length,
+  pendientes:           /* estado === "PENDIENTE_FIRMADO" */,
+  firmados:             /* estado === "FIRMADO" */,
+  rechazados:           /* estado === "RECHAZADO" */,
+  expirados:            /* estado === "EXPIRADO" */,
+  porcentajeCompletado: Math.round((firmados / total) * 100)
+}));
+```
+
+### Filtros de estado disponibles
+
+| Valor | Etiqueta |
+|---|---|
+| `PENDIENTE_FIRMADO` | Pendiente de Firmar |
+| `FIRMADO` | Firmado |
+| `RECHAZADO` | Rechazado |
+| `EXPIRADO` | Expirado |
+| `CANCELADO` | Cancelado |
+| `@` | Todos |
+
+---
+
+## Daemon nohup
+
+El daemon es un proceso **independiente del servidor Nuxt** que consulta de forma recurrente el estado de las solicitudes enviadas a FirmaPlus.
+
+### Arquitectura
+
+```
+app.ts (loop principal)
+  │
+  ├─ Prisma: findMany estado = PENDIENTE_FIRMADO
+  │
+  └─ for secuencial ──► Worker (consultar-firma.worker.ts)
+                          │
+                          └─ apiFirmaPlus → consultarsolicitud/{numero_solicitud}
+```
+
+| Archivo | Responsabilidad |
+|---|---|
+| `app.ts` | Loop infinito con pausa de 5 minutos, consulta Prisma, lanza workers secuenciales |
+| `workers/consultar-firma.worker.ts` | Consulta FirmaPlus y escribe logs por solicitud |
+| `lib/config.ts` | Carga variables `API_FIRMA_*` desde `.env` sin contexto Nuxt |
+| `lib/types.ts` | Tipos de `workerData` y resultado del worker |
+
+### Ciclo de trabajo
+
+1. Arranque → log `nohup: daemon de consulta FirmaPlus iniciado`
+2. Consulta solicitudes con `estado = "PENDIENTE_FIRMADO"` en base de datos
+3. Por cada solicitud lanza un worker con `numero_solicitud` y `firmantesCount`
+4. Espera a que finalice el worker antes de procesar la siguiente (ejecución secuencial)
+5. Pausa **5 minutos**
+6. Repite desde el paso 2
+
+### Ejecución
+
+```bash
+# Primer plano (desarrollo / pruebas)
+pnpm nohup:firmas
+
+# En segundo plano — escribe en storage/logs/nohup-firmas.log
+pnpm nohup:firmas:daemon
+```
+
+Detener con `Ctrl+C`. El proceso cierra el cliente Prisma limpiamente ante `SIGINT` o `SIGTERM`.
+
+### Logs
+
+| Destino | Contenido |
+|---|---|
+| `storage/logs/app.log` | Logs estructurados con prefijo `nohup:` |
+| `storage/logs/nohup-firmas.log` | Salida del script cuando se usa `nohup:firmas:daemon` |
+
+Ejemplos de entradas en `app.log`:
+
+```
+[INFO] nohup: ciclo iniciado | {"total":3}
+[INFO] nohup: consulta FirmaPlus exitosa | {"numero_solicitud":"000001-2026-01",...}
+[INFO] nohup: worker completado | {"numero_solicitud":"000001-2026-01","success":true,"code":"1"}
+[INFO] nohup: esperando próximo ciclo | {"minutes":5}
+```
+
+El nivel de log es configurable con la variable de entorno `LOG_LEVEL` (`DEBUG`, `INFO`, `WARN`, `ERROR`).
+
+---
+
+## Página Pública de Firma
+
+La ruta `/firma/:token` es accesible sin autenticación en la aplicación y está destinada al afiliado o firmante que recibe el enlace por correo electrónico.
+
+```http
+GET /api/public/firma/:token
+```
+
+Este endpoint valida el token, recupera los datos del proceso de firma asociado y retorna la información necesaria para que la página muestre el estado actual y el enlace directo a la interfaz de firma de FirmaPlus.
+
+```typescript
+interface FirmaPlusResponse {
+  success: boolean;
+  transaccion_id: string;
+  url_firmantes: string[];  // URLs de firma por firmante
+  message: string;
+}
+```
+
+---
+
+<Warning>
+  El daemon `nohup` requiere que el cliente Prisma esté generado (`pnpm db:generate`) y que el archivo `.env` contenga las variables `DATABASE_URL_DEV` / `DATABASE_URL_PRO` y todas las variables `API_FIRMA_*` correctamente configuradas. Sin estas variables, el proceso falla al arrancar. En entorno `API_FIRMA_ENV=dev`, FirmaPlus responde con datos mock definidos en `server/services/api-firmaplus.ts` y no realiza llamadas reales a la plataforma.
+</Warning>

@@ -1,0 +1,245 @@
+---
+title: "Almacenamiento de Archivos y Documentos en Comfaca Créditos"
+sidebarTitle: "Almacenamiento"
+description: "Arquitectura de almacenamiento de documentos en Comfaca Créditos: uploads locales, SFTP remoto, tipos MIME permitidos y rutas de acceso."
+---
+
+Los documentos asociados a las solicitudes de crédito (cédulas, desprendibles de nómina, extractos bancarios, PDFs generados, etc.) se persisten en el **sistema de archivos local** del servidor a través del servicio `DocumentoStorage`. De forma opcional, los archivos pueden replicarse o almacenarse en un **servidor remoto via SFTP** usando `sftpClientService`. Ambas capas son independientes: el almacenamiento local siempre está disponible, mientras que el SFTP se activa únicamente si `SFTP_HOST` está configurado.
+
+---
+
+## Variables de Almacenamiento
+
+Las rutas de almacenamiento se definen mediante variables de entorno y se exponen en el servidor a través de `runtimeConfig.storage`:
+
+```ts
+// nuxt.config.ts (fragmento)
+runtimeConfig: {
+  storage: {
+    documentsPath: resolve(__dirname, env.STORAGE_DOCUMENTS_PATH || "storage/"),
+    logs:          resolve(__dirname, env.STORAGE_LOGS_PATH     || "storage/"),
+    uploads:       resolve(__dirname, env.STORAGE_UPLOADS_PATH  || "storage/")
+  }
+}
+```
+
+| Variable de entorno | `runtimeConfig` key | Uso |
+|---|---|---|
+| `STORAGE_DOCUMENTS_PATH` | `storage.documentsPath` | PDFs generados y documentos de solicitudes |
+| `STORAGE_LOGS_PATH` | `storage.logs` | Logs estructurados del servidor y del daemon nohup |
+| `STORAGE_UPLOADS_PATH` | `storage.uploads` | Archivos subidos por los afiliados (multipart/form-data) |
+
+<Note>
+  Si las variables de entorno no están definidas, las tres rutas apuntan por defecto al directorio `storage/` en la raíz del proyecto. En producción se recomienda apuntar a rutas absolutas fuera del directorio de la aplicación para evitar que se sobreescriban en cada despliegue.
+</Note>
+
+---
+
+## Servicio de Documentos
+
+`DocumentoStorage` es una clase que gestiona la lectura y escritura de PDFs en el almacenamiento local. Se exporta como singleton (`documentoStorage`) para reutilizar la misma instancia en toda la aplicación.
+
+```ts
+// server/services/storage/documento-storage.service.ts
+class DocumentoStorage {
+  private storagePath: string;
+
+  constructor() {
+    const config = useRuntimeConfig();
+    this.storagePath = config.storage?.documentsPath || "./storage/documents";
+  }
+
+  /** Inicializa el directorio de storage (crea si no existe). */
+  async inicializarStorage(): Promise<void> {
+    await fs.mkdir(this.storagePath, { recursive: true });
+  }
+
+  /** Guarda un documento PDF. Acepta contenido en base64 (string) o Buffer. */
+  async guardarPdf(
+    solicitudId: string,
+    contenido: string | Buffer,
+    nombre?: string
+  ): Promise<string> {
+    await this.inicializarStorage();
+    const nombreArchivo = nombre || `solicitud_${solicitudId}.pdf`;
+    const rutaArchivo = path.join(this.storagePath, nombreArchivo);
+
+    if (typeof contenido === "string") {
+      await fs.writeFile(rutaArchivo, contenido, "base64");
+    } else {
+      await fs.writeFile(rutaArchivo, contenido);
+    }
+    return rutaArchivo;
+  }
+
+  /** Lee un PDF del storage y devuelve su contenido en base64. */
+  async obtenerPdf(solicitudId: string, nombre?: string): Promise<string | null> {
+    const nombreArchivo = nombre || `solicitud_${solicitudId}.pdf`;
+    const rutaArchivo = path.join(this.storagePath, nombreArchivo);
+    const contenido = await fs.readFile(rutaArchivo);
+    return contenido.toString("base64");
+  }
+
+  /** Elimina un PDF del storage. Devuelve true si la operación fue exitosa. */
+  async eliminarPdf(solicitudId: string, nombre?: string): Promise<boolean> {
+    const nombreArchivo = nombre || `solicitud_${solicitudId}.pdf`;
+    const rutaArchivo = path.join(this.storagePath, nombreArchivo);
+    await fs.unlink(rutaArchivo);
+    return true;
+  }
+
+  /** Verifica si un PDF existe en el storage. */
+  async existePdf(solicitudId: string, nombre?: string): Promise<boolean> {
+    const nombreArchivo = nombre || `solicitud_${solicitudId}.pdf`;
+    const rutaArchivo = path.join(this.storagePath, nombreArchivo);
+    try {
+      await fs.access(rutaArchivo);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export const documentoStorage = new DocumentoStorage();
+export default documentoStorage;
+```
+
+El método `obtenerContenidoDesdePdfGenerado(pdfGenerado)` soporta tres formatos de entrada para máxima compatibilidad con los distintos proveedores de PDF:
+
+| Campo en `PdfGenerado` | Comportamiento |
+|---|---|
+| `content` | Usa directamente el base64 ya incluido en el objeto |
+| `path` | Lee el archivo desde la ruta de disco indicada |
+| `url` | Descarga el documento desde la URL usando `ofetch` |
+
+---
+
+## Servicio SFTP
+
+`sftpClientService` es una función factoría que encapsula el cliente `ssh2-sftp-client`. Mantiene una **conexión singleton por instancia** y comparte la misma promesa de conexión entre llamadas concurrentes para evitar handshakes duplicados.
+
+### Configuración de conexión
+
+```ts
+// nuxt.config.ts (fragmento runtimeConfig.sftp)
+sftp: {
+  env:                env.SFTP_ENV               || "dev",
+  host:               env.SFTP_HOST              || "",
+  port:               Number(env.SFTP_PORT)       || 22,
+  username:           env.SFTP_USER              || "",
+  password:           env.SFTP_PASSWORD          || "",
+  // Autenticación por clave privada (recomendada en producción):
+  private_key_base64: env.SFTP_PRIVATE_KEY_BASE64 || "",
+  passphrase:         env.SFTP_PASSPHRASE        || "",
+  // Directorio base remoto; las rutas relativas son relativas a este.
+  base_path:          env.SFTP_BASE_PATH         || "/",
+  ready_timeout:      Number(env.SFTP_READY_TIMEOUT_MS) || 20000
+}
+```
+
+### Prioridad de autenticación
+
+```ts
+// server/services/shared/sftp-client.service.ts (fragmento)
+const buildConnectionOptions = (cfg: SftpConfig) => {
+  const options: Record<string, unknown> = {
+    host: cfg.host,
+    port: cfg.port,
+    username: cfg.username,
+    readyTimeout: cfg.ready_timeout,
+    keepaliveInterval: 10000,
+    keepaliveCountMax: 3
+  };
+
+  if (cfg.private_key_base64) {
+    // Autenticación por clave privada (RSA / ED25519 en base64)
+    options.privateKey = decodePrivateKey(cfg.private_key_base64);
+    if (cfg.passphrase) {
+      options.passphrase = cfg.passphrase;
+    }
+  } else {
+    // Fallback: autenticación por contraseña
+    options.password = cfg.password;
+  }
+
+  return options;
+};
+```
+
+Si `SFTP_PRIVATE_KEY_BASE64` está presente, la clave se decodifica con `Buffer.from(raw, "base64")` y tiene **prioridad** sobre la contraseña. Si la cadena no puede decodificarse como base64, se interpreta como texto plano (compatibilidad con claves sin codificar).
+
+### Métodos disponibles
+
+| Método | Descripción |
+|---|---|
+| `uploadFile(localPath, remotePath?, opts?)` | Sube un archivo local al servidor remoto |
+| `uploadBuffer(content, remotePath, opts?)` | Sube contenido en memoria (Buffer o string) |
+| `uploadFromDisk(localPath, remoteSubPath?)` | Lee un archivo local y lo sube (helper combinado) |
+| `downloadFile(remotePath, localPath)` | Descarga un archivo remoto a disco |
+| `downloadBuffer(remotePath)` | Descarga un archivo remoto y devuelve un `Buffer` |
+| `listFiles(remotePath?)` | Lista el contenido de un directorio remoto |
+| `mkdir(remotePath, recursive?)` | Crea un directorio remoto |
+| `remove(remotePath, recursive?)` | Elimina un archivo o directorio remoto |
+| `exists(remotePath)` | Verifica si una ruta remota existe |
+| `verify()` | Healthcheck de la conexión SFTP |
+| `disconnect()` | Cierra la conexión activa (idempotente) |
+| `resolvePath(subPath)` | Construye la ruta completa anteponiendo `base_path` |
+
+---
+
+## Rutas de API para Documentos
+
+Todas las rutas bajo `/api/solicitudes/:id/documentos` requieren autenticación y que el usuario sea el propietario de la solicitud o tenga el rol `administrator`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/solicitudes/:id/documentos` | Subir un documento adjunto a la solicitud (multipart/form-data) |
+| `GET` | `/api/solicitudes/:id/documentos` | Listar los documentos asociados a una solicitud |
+| `GET` | `/api/solicitudes/:id/documentos/:documentoId/descargar` | Descargar el contenido de un documento específico |
+| `DELETE` | `/api/solicitudes/:id/documentos/:documentoId` | Eliminar un documento de la solicitud |
+| `GET` | `/api/public/storage/:path` | Acceso público a archivos del storage (sin autenticación, ruta bajo `PUBLIC_PREFIXES`) |
+| `GET` | `/api/solicitudes/:id/documentos/requeridos` | Obtener la lista de tipos de documentos requeridos para la solicitud |
+
+---
+
+## Modelo de Base de Datos
+
+Los metadatos de cada documento subido se persisten en la tabla `documentos_postulantes`:
+
+```prisma
+// prisma/schema.prisma
+model documentos_postulantes {
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  username        String    @db.VarChar(100)       // Propietario del documento
+  tipo_documento  String    @db.VarChar(50)        // Clasificación: cedula, nomina, etc.
+  nombre_original String    @db.VarChar(255)       // Nombre original del archivo subido
+  saved_filename  String    @db.VarChar(255)       // Nombre con el que se guardó en disco
+  tipo_mime       String?   @db.VarChar(100)       // MIME type del archivo
+  tamano_bytes    Int?                             // Tamaño en bytes
+  ruta_archivo    String?   @db.VarChar(500)       // Ruta absoluta local
+  api_path        String?   @db.VarChar(500)       // Ruta remota en SFTP (si aplica)
+  api_filename    String?   @db.VarChar(255)       // Nombre del archivo en el servidor remoto
+  solicitud_id    String    @db.VarChar(20)        // FK → solicitudes_credito.numero_solicitud
+  activo          Boolean   @default(true)         // Soft delete
+  created_at      DateTime? @db.Timestamp(0)
+  updated_at      DateTime? @db.Timestamp(0)
+
+  solicitudes_credito solicitudes_credito @relation(...)
+  users               users               @relation(...)
+
+  @@index([activo])
+  @@index([api_path])
+  @@index([solicitud_id])
+  @@index([tipo_documento])
+  @@index([username])
+}
+```
+
+El campo `activo` implementa un **borrado lógico**: los documentos eliminados por el usuario se marcan como `activo = false` pero no se eliminan físicamente del disco de forma inmediata, lo que permite auditoría y recuperación posterior.
+
+Los campos `api_path` y `api_filename` se populan cuando el documento se replica en el servidor SFTP remoto, permitiendo saber en todo momento dónde reside cada copia del archivo.
+
+<Tip>
+  En entornos de producción se recomienda usar **autenticación por clave privada** (`SFTP_PRIVATE_KEY_BASE64`) en lugar de contraseña. Genera un par de claves RSA o ED25519, codifica la clave privada en base64 con `base64 -w 0 ~/.ssh/id_ed25519` y asigna el resultado a `SFTP_PRIVATE_KEY_BASE64`. Añade la clave pública al `authorized_keys` del servidor SFTP. Esto elimina la necesidad de gestionar contraseñas y es compatible con políticas de seguridad que prohíben la autenticación por contraseña en SSH.
+</Tip>

@@ -1,0 +1,459 @@
+---
+title: "POST /api/solicitudes/guardar-solicitud — Crear Solicitud de Crédito"
+sidebarTitle: "POST /guardar-solicitud"
+description: "Crea una nueva solicitud de crédito en Comfaca. Acepta el payload del wizard multi-paso con datos del solicitante, laboral y convenio. Validado con Zod."
+---
+
+Este grupo de endpoints permite a un afiliado autenticado **crear, consultar y eliminar** sus solicitudes de crédito. El endpoint principal `POST /api/solicitudes/guardar-solicitud` es el destino final del wizard multi-paso de la aplicación: recibe el payload completo con la información de la solicitud, del solicitante y todos los datos complementarios, los valida con **Zod** y los persiste en la base de datos.
+
+El `owner_username` se toma directamente de la sesión activa del usuario, no del cuerpo de la petición, garantizando que una solicitud siempre pertenezca al afiliado autenticado.
+
+---
+
+## POST /api/solicitudes/guardar-solicitud
+
+**Autenticación:** Requiere sesión activa.
+
+### Cuerpo de la petición
+
+El payload es un objeto JSON con las secciones del wizard. Todas las secciones excepto `solicitud` son opcionales a nivel del schema, aunque el negocio requiere que estén completas para avanzar en el ciclo de vida.
+
+#### Sección `solicitud` (requerida)
+
+<ParamField body="solicitud" type="object" required>
+  Datos principales de la solicitud de crédito.
+
+  <Expandable title="Campos de solicitud">
+    <ParamField body="solicitud.valor_solicitud" type="number" required>
+      Monto total solicitado en pesos colombianos (COP). Debe ser un número no negativo.
+    </ParamField>
+    <ParamField body="solicitud.plazo_meses" type="integer" required>
+      Plazo de pago expresado en meses. Número entero no negativo.
+    </ParamField>
+    <ParamField body="solicitud.tasa_interes" type="number">
+      Tasa de interés mensual aplicada al crédito. Número no negativo. Opcional si la línea de crédito define la tasa automáticamente.
+    </ParamField>
+    <ParamField body="solicitud.cuota_mensual" type="number">
+      Cuota mensual calculada en pesos COP.
+    </ParamField>
+    <ParamField body="solicitud.estado" type="string">
+      Estado inicial de la solicitud. Por defecto `"POSTULADO"` si no se especifica.
+    </ParamField>
+    <ParamField body="solicitud.producto_tipo" type="string">
+      Tipo de producto crediticio solicitado (ej. `"LIBRE_INVERSION"`, `"VIVIENDA"`).
+    </ParamField>
+    <ParamField body="solicitud.tipo_credito" type="string">
+      Clasificación del crédito según el catálogo de Comfaca.
+    </ParamField>
+    <ParamField body="solicitud.moneda" type="string">
+      Moneda de la solicitud. Por defecto `"COP"`.
+    </ParamField>
+    <ParamField body="solicitud.detalle_modalidad" type="string">
+      Descripción de la modalidad de crédito seleccionada.
+    </ParamField>
+    <ParamField body="solicitud.ha_tenido_credito" type="boolean">
+      Indica si el afiliado ya tuvo un crédito anterior con Comfaca.
+    </ParamField>
+    <ParamField body="solicitud.rol_en_solicitud" type="string">
+      Rol del usuario en la solicitud. Valores válidos: `"T"` (Titular), `"S"` (Solicitante), `"C"` (Codeudor), `"E"` (Empleado).
+    </ParamField>
+    <ParamField body="solicitud.owner_username" type="string">
+      Nombre de usuario propietario. Se asigna automáticamente desde la sesión si no se incluye.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+#### Sección `solicitante` (opcional en schema, requerida en negocio)
+
+<ParamField body="solicitante" type="object">
+  Datos personales y laborales del solicitante principal.
+
+  <Expandable title="Campos de solicitante">
+    <ParamField body="solicitante.tipo_persona" type="string">
+      `"natural"` o `"juridica"`. También acepta objeto `{label, value}` desde el wizard.
+    </ParamField>
+    <ParamField body="solicitante.tipo_documento" type="string">
+      Código del tipo de documento de identidad (ej. `"CC"`, `"CE"`).
+    </ParamField>
+    <ParamField body="solicitante.numero_documento" type="string">
+      Número de documento de identidad.
+    </ParamField>
+    <ParamField body="solicitante.nombres" type="string">
+      Nombres del solicitante.
+    </ParamField>
+    <ParamField body="solicitante.apellidos" type="string">
+      Apellidos del solicitante.
+    </ParamField>
+    <ParamField body="solicitante.razon_social" type="string">
+      Razón social (aplica solo para personas jurídicas).
+    </ParamField>
+    <ParamField body="solicitante.nit" type="string">
+      NIT de la empresa (aplica solo para personas jurídicas).
+    </ParamField>
+    <ParamField body="solicitante.fecha_nacimiento" type="string">
+      Fecha de nacimiento en formato ISO 8601 (`"YYYY-MM-DD"`).
+    </ParamField>
+    <ParamField body="solicitante.genero" type="string">
+      Género del solicitante: `"M"` (Masculino), `"F"` (Femenino), `"O"` (Otro).
+    </ParamField>
+    <ParamField body="solicitante.estado_civil" type="string">
+      Estado civil según catálogo de parámetros (ej. `"S"`, `"C"`, `"U"`).
+    </ParamField>
+    <ParamField body="solicitante.nivel_educativo" type="string">
+      Nivel educativo: `"primaria"`, `"bachillerato"`, `"tecnico"`, `"universitario"`, `"posgrado"`, `"ninguno"`.
+    </ParamField>
+    <ParamField body="solicitante.email" type="string">
+      Correo electrónico del solicitante.
+    </ParamField>
+    <ParamField body="solicitante.telefono_movil" type="string">
+      Teléfono móvil del solicitante.
+    </ParamField>
+    <ParamField body="solicitante.telefono_fijo" type="string">
+      Teléfono fijo del solicitante.
+    </ParamField>
+    <ParamField body="solicitante.direccion" type="string">
+      Dirección de residencia.
+    </ParamField>
+    <ParamField body="solicitante.barrio" type="string">
+      Barrio de residencia.
+    </ParamField>
+    <ParamField body="solicitante.ciudad" type="string">
+      Ciudad de residencia. Acepta string o objeto `{label, value, description}`.
+    </ParamField>
+    <ParamField body="solicitante.departamento" type="string">
+      Departamento de residencia.
+    </ParamField>
+    <ParamField body="solicitante.pais_residencia" type="string">
+      País de residencia (código ISO).
+    </ParamField>
+    <ParamField body="solicitante.tipo_vivienda" type="string">
+      Tipo de vivienda: `"N"` (Ninguna), `"F"` (Familiar), `"P"` (Propia), `"A"` (Arrendada), `"H"` (Hipotecada).
+    </ParamField>
+    <ParamField body="solicitante.personas_a_cargo" type="integer">
+      Número de personas a cargo del solicitante. Mínimo 0.
+    </ParamField>
+    <ParamField body="solicitante.cargo" type="string">
+      Cargo o posición laboral actual.
+    </ParamField>
+    <ParamField body="solicitante.salario" type="number">
+      Salario mensual en pesos COP. No negativo.
+    </ParamField>
+    <ParamField body="solicitante.antiguedad_meses" type="integer">
+      Antigüedad laboral en meses. Mínimo 0.
+    </ParamField>
+    <ParamField body="solicitante.tipo_contrato" type="string">
+      Tipo de contrato laboral según catálogo.
+    </ParamField>
+    <ParamField body="solicitante.sector_economico" type="string">
+      Sector económico de la empresa empleadora.
+    </ParamField>
+    <ParamField body="solicitante.codigo_categoria" type="string">
+      Código de la categoría del afiliado en Comfaca.
+    </ParamField>
+    <ParamField body="solicitante.vive_con_nucleo_familiar" type="boolean">
+      Indica si el solicitante vive con su núcleo familiar.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+#### Secciones adicionales del wizard
+
+<ParamField body="linea_credito" type="any">
+  Datos de la línea de crédito seleccionada (convenio, producto, condiciones especiales).
+</ParamField>
+
+<ParamField body="conyuge" type="any">
+  Datos del cónyuge o compañero permanente del solicitante (cuando aplica).
+</ParamField>
+
+<ParamField body="informacion_laboral" type="any">
+  Información detallada del empleo actual del solicitante.
+</ParamField>
+
+<ParamField body="ingresos_descuentos" type="any">
+  Relación de ingresos mensuales y descuentos de nómina existentes.
+</ParamField>
+
+<ParamField body="informacion_economica" type="any">
+  Resumen de la situación económica general del solicitante.
+</ParamField>
+
+<ParamField body="propiedades" type="any">
+  Lista de propiedades (bienes inmuebles o vehículos) del solicitante.
+</ParamField>
+
+<ParamField body="deudas" type="any">
+  Relación de deudas activas del solicitante con otras entidades.
+</ParamField>
+
+<ParamField body="referencias" type="any">
+  Referencias familiares y personales del solicitante.
+</ParamField>
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  `true` cuando la solicitud fue creada exitosamente.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Solicitud guardada exitosamente."`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Objeto con los datos de la solicitud creada, incluyendo el `numero_solicitud` generado y todos los campos persistidos.
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `401` | Sin sesión | No hay sesión activa o expiró. |
+| `422` | Validación Zod | `valor_solicitud` o `plazo_meses` ausentes, `rol_en_solicitud` inválido u otro fallo de schema. |
+| `429` | Límite alcanzado | El afiliado superó el número máximo de solicitudes activas permitidas. |
+| `502` | Error de backend | Fallo al persistir en la base de datos o al conectar con el servicio. |
+
+### Ejemplo — Petición JSON
+
+```json
+{
+  "solicitud": {
+    "valor_solicitud": 5000000,
+    "plazo_meses": 24,
+    "tasa_interes": 1.5,
+    "cuota_mensual": 242872,
+    "estado": "POSTULADO",
+    "producto_tipo": "LIBRE_INVERSION",
+    "tipo_credito": "LI",
+    "moneda": "COP",
+    "detalle_modalidad": "Libre Inversión",
+    "ha_tenido_credito": false,
+    "rol_en_solicitud": "T"
+  },
+  "solicitante": {
+    "tipo_persona": "natural",
+    "tipo_documento": "CC",
+    "numero_documento": "1012345678",
+    "nombres": "JUAN CARLOS",
+    "apellidos": "PÉREZ GÓMEZ",
+    "fecha_nacimiento": "1985-06-15",
+    "genero": "M",
+    "estado_civil": "S",
+    "nivel_educativo": "universitario",
+    "email": "juan.perez@empresa.com",
+    "telefono_movil": "3001234567",
+    "direccion": "Cra 15 # 93-47",
+    "barrio": "Chicó",
+    "ciudad": "11001",
+    "departamento": "11",
+    "pais_residencia": "CO",
+    "tipo_vivienda": "A",
+    "personas_a_cargo": 0,
+    "cargo": "INGENIERO DE SISTEMAS",
+    "salario": 4500000,
+    "antiguedad_meses": 36,
+    "tipo_contrato": "INDEFINIDO",
+    "sector_economico": "TEC",
+    "codigo_categoria": "A",
+    "vive_con_nucleo_familiar": true
+  },
+  "informacion_laboral": {
+    "empresa": "Tech Solutions SAS",
+    "nit_empresa": "900123456-1",
+    "telefono_empresa": "6012345678",
+    "direccion_empresa": "Calle 72 # 12-65"
+  }
+}
+```
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/solicitudes/guardar-solicitud \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt \
+  -d @solicitud-payload.json
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Solicitud guardada exitosamente.",
+  "data": {
+    "numero_solicitud": "000001-202501-LI",
+    "owner_username": "juan.perez",
+    "estado": "POSTULADO",
+    "valor_solicitud": 5000000,
+    "plazo_meses": 24,
+    "tasa_interes": 1.5,
+    "cuota_mensual": 242872,
+    "created_at": "2025-01-15T10:30:00.000Z"
+  }
+}
+```
+
+---
+
+## GET /api/solicitudes/mis-solicitudes
+
+Lista todas las solicitudes de crédito del usuario autenticado con soporte de **paginación** mediante `limit` y `offset`.
+
+**Autenticación:** Requiere sesión activa.
+
+### Query Parameters
+
+<ParamField query="limit" type="integer" default="20">
+  Número máximo de solicitudes a retornar por página. Por defecto `20`.
+</ParamField>
+
+<ParamField query="offset" type="integer" default="0">
+  Número de solicitudes a omitir para la paginación. Por defecto `0`.
+</ParamField>
+
+### Respuesta exitosa `200`
+
+<ResponseField name="data.solicitudes" type="array">
+  Lista de solicitudes del usuario. Cada elemento contiene el detalle de la solicitud.
+</ResponseField>
+
+<ResponseField name="data.total" type="integer">
+  Total de solicitudes del usuario (para calcular páginas).
+</ResponseField>
+
+<ResponseField name="data.limit" type="integer">
+  El límite aplicado en esta consulta.
+</ResponseField>
+
+<ResponseField name="data.offset" type="integer">
+  El offset aplicado en esta consulta.
+</ResponseField>
+
+### Ejemplo — cURL
+
+```bash
+curl -X GET "http://localhost:4000/api/solicitudes/mis-solicitudes?limit=10&offset=0" \
+  -b cookies.txt
+```
+
+### Ejemplo — Respuesta `200`
+
+```json
+{
+  "success": true,
+  "message": "Solicitudes obtenidas exitosamente",
+  "data": {
+    "solicitudes": [
+      {
+        "numero_solicitud": "000001-202501-LI",
+        "estado": "POSTULADO",
+        "valor_solicitud": 5000000,
+        "plazo_meses": 24,
+        "created_at": "2025-01-15T10:30:00.000Z"
+      }
+    ],
+    "total": 1,
+    "limit": 10,
+    "offset": 0
+  }
+}
+```
+
+---
+
+## GET /api/solicitudes/:id
+
+Obtiene el detalle completo de una solicitud de crédito por su `numero_solicitud`. Incluye los registros de PDFs generados asociados.
+
+**Autenticación:** Requiere sesión activa. Solo el propietario de la solicitud puede consultarla.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud a consultar. Formato: `"000001-202501-LI"`.
+</ParamField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | ID ausente | No se proporcionó el parámetro `id`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `403` | Sin permisos | La solicitud pertenece a otro usuario. |
+| `404` | No encontrada | No existe una solicitud con ese `numero_solicitud`. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X GET http://localhost:4000/api/solicitudes/000001-202501-LI \
+  -b cookies.txt
+```
+
+### Ejemplo — Respuesta `200`
+
+```json
+{
+  "success": true,
+  "data": {
+    "numero_solicitud": "000001-202501-LI",
+    "owner_username": "juan.perez",
+    "estado": "DOCUMENTOS_CARGADOS",
+    "valor_solicitud": "5000000",
+    "plazo_meses": 24,
+    "tasa_interes": "1.5",
+    "cuota_mensual": "242872",
+    "created_at": "2025-01-15T10:30:00.000Z",
+    "updated_at": "2025-01-16T09:00:00.000Z",
+    "pdfs_generados": null
+  }
+}
+```
+
+<Note>
+  Los campos numéricos de tipo `BigInt` (como `valor_solicitud` y `tasa_interes`) son serializados como **strings** para compatibilidad JSON. El cliente debe parsearlos a número si los necesita para cálculos.
+</Note>
+
+---
+
+## DELETE /api/solicitudes/:id
+
+Elimina una solicitud de crédito de forma permanente. Solo el **propietario** de la solicitud o un usuario con rol **`administrator`** pueden ejecutar esta operación.
+
+**Autenticación:** Requiere sesión activa.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud a eliminar.
+</ParamField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | ID ausente | No se proporcionó el parámetro `id`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `403` | Sin permisos | El usuario no es propietario ni administrador. |
+| `404` | No encontrada | No existe la solicitud con ese ID. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X DELETE http://localhost:4000/api/solicitudes/000001-202501-LI \
+  -b cookies.txt
+```
+
+### Ejemplo — Respuesta `200`
+
+```json
+{
+  "success": true,
+  "message": "Solicitud eliminada exitosamente",
+  "data": null
+}
+```
+
+<Warning>
+  La eliminación es **permanente e irreversible**. Todos los documentos y datos asociados a la solicitud también serán eliminados en cascada. Solo ejecuta esta operación si estás completamente seguro.
+</Warning>

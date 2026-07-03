@@ -1,28 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Comfaca Créditos en Línea",
+  "projectType": "saas",
+  "projectName": "Comfaca Créditos en Línea",
+  "projectDescription": "Plataforma web full-stack para la solicitud, gestión y aprobación digital de créditos de la Caja de Compensación Familiar del Caquetá (COMFACA), con firma electrónica integrada y panel administrativo.",
   "theme": "almond",
-  "colors": {
-    "primary": "#64748c",
-    "light": "#04db83",
-    "dark": "#040404"
-  },
-  "favicon": "https://media.brand.dev/c91dc777-0527-44fe-bc2e-83ace150e947.png",
-  "logo": {
-    "light": "https://media.brand.dev/684e56d3-204a-4803-a7b7-f51a79cbe5e1.svg",
-    "dark": "https://media.brand.dev/684e56d3-204a-4803-a7b7-f51a79cbe5e1.svg"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/elegroag/nuxt-credito-caja"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/elegroag/nuxt-credito-caja"
-    }
-  },
+  "primaryColor": "#64748c",
+  "lightColor": "#04db83",
+  "darkColor": "#040404",
   "navigation": {
     "tabs": [
       {
@@ -109,5 +92,49 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Solicitud de créditos en línea con wizard multi-paso",
+    "Firma digital electrónica con OTP mediante FirmaPlus",
+    "Panel administrativo con estadísticas en tiempo real",
+    "Gestión de convenios con empresas afiliadas a COMFACA",
+    "Generación de documentos PDF contractuales vía FlaskPDF",
+    "Validación de afiliados en tiempo real con API SISU",
+    "Sistema de notificaciones in-app",
+    "Almacenamiento de documentos en SFTP remoto",
+    "Daemon de monitoreo de firmas pendientes (nohup)",
+    "Autenticación JWT con sesiones de 8 horas y bcrypt"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/login",
+    "POST /api/auth/register",
+    "POST /api/auth/logout",
+    "GET  /api/auth/me",
+    "POST /api/auth/verify-code",
+    "POST /api/auth/recovery",
+    "GET  /api/solicitudes/mis-solicitudes",
+    "POST /api/solicitudes/guardar-solicitud",
+    "GET  /api/solicitudes/:id",
+    "DELETE /api/solicitudes/:id",
+    "POST /api/solicitudes/:id/generar-pdf",
+    "GET  /api/solicitudes/:id/descargar-pdf",
+    "GET  /api/solicitudes/:id/documentos",
+    "POST /api/solicitudes/:id/documentos",
+    "DELETE /api/solicitudes/:id/documentos/:documentoId",
+    "GET  /api/admin/solicitudes",
+    "PUT  /api/admin/solicitudes/:id/estado",
+    "POST /api/admin/solicitudes/:id/iniciar-firmado",
+    "GET  /api/admin/convenios",
+    "POST /api/admin/convenios/create",
+    "GET  /api/admin/users",
+    "POST /api/admin/users/create",
+    "GET  /api/admin/dashboard/estadisticas",
+    "GET  /api/notifications",
+    "PUT  /api/notifications/mark-all-read",
+    "GET  /api/configurations",
+    "GET  /api/health",
+    "GET  /api/convenios/activo",
+    "POST /api/validacion/codigo-firma",
+    "GET  /api/public/firma/:token"
+  ]
 }

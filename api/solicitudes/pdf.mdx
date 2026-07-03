@@ -1,0 +1,213 @@
+---
+title: "Generar y Descargar PDF Contractual de Solicitud"
+sidebarTitle: "PDF"
+description: "Genera el documento PDF contractual de una solicitud vía FlaskPDF y descárgalo. Endpoints POST /generar-pdf y GET /descargar-pdf."
+---
+
+Comfaca Créditos en Línea genera el **documento contractual** de cada solicitud de crédito a través de un microservicio externo denominado **FlaskPDF**. Este servicio recibe un payload estructurado con todos los datos de la solicitud, el solicitante, información laboral, económica y referencias, y produce un PDF firmable con el formato contractual de Comfaca.
+
+El flujo de generación consta de dos pasos: primero se **genera** el PDF (`POST /generar-pdf`), que construye el payload, consulta catálogos de parámetros, llama al servicio FlaskPDF y almacena el resultado en `storage/pdfs/{solicitud_id}/`; luego se **descarga** (`GET /descargar-pdf`) el PDF ya generado.
+
+<Note>
+  El endpoint `POST /generar-pdf` depende del servicio externo **FlaskPDF**. Si este servicio no está disponible o responde con error, la generación fallará con un `500` y el PDF no quedará almacenado. Verifica el estado del servicio FlaskPDF antes de reintentar.
+</Note>
+
+---
+
+## POST /api/solicitudes/:id/generar-pdf
+
+Dispara el proceso de generación del contrato PDF para una solicitud. Internamente:
+
+1. Carga la solicitud desde Prisma (incluyendo `solicitud_solicitante`, `firmantes_solicitud` y `solicitud_payload`).
+2. Consulta catálogos de parámetros del API de Sisuweb (ciudades, países, tipos de documento, niveles educativos, etc.).
+3. Construye el payload estructurado con `pdfPayloadService`.
+4. Envía el payload al servicio **FlaskPDF** y obtiene el PDF en base64.
+5. Guarda el PDF en storage y registra el archivo en la tabla `pdfs_generados`.
+
+**Autenticación:** Requiere sesión activa.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud para la que se generará el PDF contractual. Formato: `"000001-202501-LI"`.
+</ParamField>
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  `true` cuando el PDF fue generado y guardado exitosamente.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"PDF generado exitosamente"`.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Información del PDF generado.
+
+  <Expandable title="Propiedades de data">
+    <ResponseField name="data.solicitud_id" type="string">
+      El `numero_solicitud` al que pertenece el PDF generado.
+    </ResponseField>
+    <ResponseField name="data.filename" type="string">
+      Nombre del archivo PDF guardado en el servidor (ej. `"contrato_000001-202501-LI_20250117.pdf"`).
+    </ResponseField>
+    <ResponseField name="data.path" type="string">
+      Ruta relativa del archivo PDF en el servidor (ej. `"storage/pdfs/000001-202501-LI/contrato_000001-202501-LI_20250117.pdf"`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | ID ausente | No se proporcionó el parámetro `id`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `404` | No encontrada | No existe la solicitud con ese `id`. |
+| `500` | Error de FlaskPDF | El servicio FlaskPDF retornó `success: false` o un error interno. |
+| `502` | Conexión fallida | No se pudo conectar con el servicio FlaskPDF o con el backend de datos. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/solicitudes/000001-202501-LI/generar-pdf \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "PDF generado exitosamente",
+  "data": {
+    "solicitud_id": "000001-202501-LI",
+    "filename": "contrato_000001-202501-LI_20250117.pdf",
+    "path": "storage/pdfs/000001-202501-LI/contrato_000001-202501-LI_20250117.pdf"
+  }
+}
+```
+
+### Ejemplo — Error `500` (FlaskPDF falló)
+
+```json
+{
+  "success": false,
+  "message": "Error en Flask PDF",
+  "error": "Error al generar el PDF: datos de solicitante incompletos"
+}
+```
+
+<Warning>
+  Si los catálogos de parámetros del API de Sisuweb no están disponibles, el sistema intentará continuar con la generación usando los **códigos sin resolver** (ej. código `"CO"` en lugar de `"Colombia"`). Los logs del servidor registrarán un warning en este caso. El PDF puede generarse con campos descriptivos como códigos en lugar de etiquetas legibles.
+</Warning>
+
+---
+
+## GET /api/solicitudes/:id/descargar-pdf
+
+Descarga el PDF contractual previamente generado para una solicitud. El archivo es enviado como un **buffer binario** con los headers adecuados para descarga directa en el navegador.
+
+El endpoint busca primero el PDF en el storage de documentos (`documentoStorage.obtenerPdf`); si no lo encuentra, intenta leerlo directamente desde la ruta registrada en `pdfs_generados.path`.
+
+**Autenticación:** Requiere sesión activa.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  El `numero_solicitud` de la solicitud cuyo PDF contractual se desea descargar.
+</ParamField>
+
+### Headers de respuesta exitosa
+
+```
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="contrato_000001-202501-LI_20250117.pdf"
+```
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` | ID ausente | No se proporcionó el parámetro `id`. |
+| `401` | Sin sesión | No hay sesión activa. |
+| `404` | Solicitud no encontrada | No existe la solicitud con ese `id`. |
+| `404` | PDF no generado | La solicitud no tiene un registro en `pdfs_generados`. Debes llamar primero a `POST /generar-pdf`. |
+| `404` | Archivo no disponible | El contenido del PDF no pudo leerse ni desde storage ni desde la ruta en disco. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X GET http://localhost:4000/api/solicitudes/000001-202501-LI/descargar-pdf \
+  -b cookies.txt \
+  -o contrato_solicitud.pdf
+```
+
+<Tip>
+  Usa la bandera `-o contrato_solicitud.pdf` para guardar el PDF recibido directamente en disco. El nombre real del archivo es el definido en el header `Content-Disposition`.
+</Tip>
+
+### Ejemplo — Error `404` (PDF no generado aún)
+
+```json
+{
+  "success": false,
+  "message": "Recurso no disponible",
+  "error": "PDF no generado para esta solicitud"
+}
+```
+
+---
+
+## Flujo Completo de Generación y Descarga
+
+El proceso completo para obtener el PDF contractual de una solicitud es:
+
+```bash
+# Paso 1: Verificar que la solicitud existe y tiene todos los datos
+curl -X GET http://localhost:4000/api/solicitudes/000001-202501-LI \
+  -b cookies.txt
+
+# Paso 2: Generar el PDF (puede tardar varios segundos por la llamada a FlaskPDF)
+curl -X POST http://localhost:4000/api/solicitudes/000001-202501-LI/generar-pdf \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt
+
+# Paso 3: Descargar el PDF generado
+curl -X GET http://localhost:4000/api/solicitudes/000001-202501-LI/descargar-pdf \
+  -b cookies.txt \
+  -o contrato_000001-202501-LI.pdf
+```
+
+### Diagrama del proceso de generación
+
+```
+Cliente                    Nuxt API                    Servicios externos
+  │                           │                               │
+  │  POST /generar-pdf        │                               │
+  ├──────────────────────────>│                               │
+  │                           │  1. Load solicitud (Prisma)   │
+  │                           ├─────────────────────────────> │
+  │                           │<───────────────────────────── │
+  │                           │  2. Load catálogos (Sisuweb)  │
+  │                           ├─────────────────────────────> │
+  │                           │<───────────────────────────── │
+  │                           │  3. buildPayload()            │
+  │                           │  4. POST FlaskPDF             │
+  │                           ├─────────────────────────────> │
+  │                           │<───── PDF en base64 ───────── │
+  │                           │  5. pdfStorageService.guardar │
+  │<──────── 200 OK ──────────│                               │
+  │   {filename, path}        │                               │
+  │                           │                               │
+  │  GET /descargar-pdf       │                               │
+  ├──────────────────────────>│                               │
+  │                           │  6. documentoStorage.obtener  │
+  │<──── PDF binario ─────────│                               │
+```
+
+<Note>
+  La generación del PDF es **síncrona** — el endpoint `POST /generar-pdf` bloquea hasta que FlaskPDF responda. En solicitudes complejas, esto puede tomar entre **5 y 15 segundos**. Asegúrate de configurar un timeout adecuado en tu cliente HTTP (mínimo 30 segundos recomendado).
+</Note>

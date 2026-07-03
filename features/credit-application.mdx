@@ -1,0 +1,224 @@
+---
+title: "Solicitud de Crédito Digital: Wizard Multi-Paso en Comfaca"
+sidebarTitle: "Solicitud de Crédito"
+description: "Flujo completo del wizard de solicitud de crédito en Comfaca: validación de afiliado, datos del solicitante, cónyuge, laboral, documentos y revisión final."
+---
+
+El módulo de solicitud de crédito de **Comfaca Créditos en Línea** guía al afiliado a través de un wizard multi-paso que recopila toda la información requerida para una solicitud formal de libranza. El formulario se persiste automáticamente en `localStorage` a medida que el usuario avanza, garantizando que no se pierdan datos ante cierres accidentales del navegador. Al finalizar, se genera la solicitud en base de datos y se emite un PDF que desencadena el proceso de firma digital.
+
+---
+
+## Flujo del Wizard
+
+El wizard expone **10 pasos** definidos en `WIZARD_STEPS` dentro de `useWizardSolicitud.ts`. El paso activo se conserva en `localStorage` bajo la clave `comfaca_credito_solicitud_current_step`.
+
+<Steps>
+  <Step title="Solicitud — Selección de línea de crédito y simulador">
+    El afiliado elige la línea de crédito y configura el monto, el plazo y la cuota mensual usando el simulador integrado. Los datos del simulador (`useSimuladorStorage`) se cargan automáticamente al montar el wizard, pre-rellenando `valor_solicitud`, `cuota_mensual`, `plazo_meses` y los campos de `linea_credito`.
+  </Step>
+  <Step title="Solicitante — Datos personales del titular">
+    Nombre, apellidos, tipo y número de documento, fecha de nacimiento, género, estado civil, nivel educativo, dirección, email y celular. La mayor parte de estos campos se pre-rellena desde el objeto `trabajador` almacenado en `localStorage` o desde la sesión activa.
+  </Step>
+  <Step title="Cónyuge — Información del cónyuge (opcional)">
+    Solo se activa cuando el afiliado tiene estado civil `casado` o `unión libre`. Al activarlo con `toggleConyuge(true)`, se inicializa el objeto `conyuge` con los campos `identificacion`, `nombres_apellidos`, `ingresos_laborales`, `trabaja` y `telefono_movil`. Si el cónyuge trabaja, `toggleEmpresaConyuge(true)` agrega el sub-objeto `empresa`.
+  </Step>
+  <Step title="Laboral — Información laboral">
+    Empresa empleadora (razón social, NIT, teléfono, dirección, ciudad), cargo, tipo de contrato, fecha de ingreso y tiempo de servicio. Estos datos también se pre-cargan desde el perfil `trabajador` vía la API SISU.
+  </Step>
+  <Step title="Ingresos — Ingresos y descuentos">
+    Salario básico mensual, subsidio de transporte, horas extras, comisiones y otros ingresos. Del lado de descuentos: salud/pensión (8 % del salario bruto), libranzas Comfaca, otras libranzas, judiciales y otras deducciones. `autocalcularIngresos()` computa `total_ingresos`, `total_descuentos` y `total_neto_recibido` de forma reactiva.
+  </Step>
+  <Step title="Económica — Información económica">
+    Arrendamientos, otros ingresos adicionales, descripción, gastos totales, total de activos y pasivos.
+  </Step>
+  <Step title="Propiedades — Bienes inmuebles y vehículos">
+    Lista dinámica de propiedades. Cada elemento tiene: `tipo_bien` (`vivienda` | `vehiculo`), `descripcion`, `ciudad`, `matricula_inmobiliaria` y `valor_comercial`. Se agregan con `addPropiedad()` y se eliminan con `removePropiedad(idx)`.
+  </Step>
+  <Step title="Deudas — Obligaciones financieras vigentes">
+    Lista de deudas con `acreedor_nombre`, `concepto`, `valor_cuota` y `saldo_obligacion`. Se administran con `addDeuda()` / `removeDeuda(idx)`.
+  </Step>
+  <Step title="Referencias — Referencias familiares y personales">
+    Dos grupos: `familiares` y `personales`. Cada referencia tiene `nombre_apellidos` y `celular`. Se gestionan con `addReferencia(kind)` / `removeReferencia(kind, idx)`.
+  </Step>
+  <Step title="Revisión y generación — Confirmación y envío">
+    Vista de resumen con todos los datos ingresados. Al confirmar, se invoca `guardarSolicitud(payloadForm)`, que llama a `POST /api/solicitudes/guardar-solicitud`. En respuesta exitosa se abre el modal de confirmación con el número de solicitud asignado y se ofrece al afiliado ir a la sección de carga de documentos (`/dash/solicitud/documentos/:id`).
+  </Step>
+</Steps>
+
+---
+
+## Simulador de Crédito
+
+El composable `useSimuladorCore` expone funciones financieras puras para calcular cuotas, intereses y capacidad de pago. No tiene estado reactivo propio, lo que permite reutilizarlo en cualquier contexto sin efectos secundarios.
+
+### Fórmula principal — Cuota mensual
+
+La tasa mensual se deriva **siempre** de la tasa efectiva anual (EA) usando la equivalencia compuesta:
+
+```typescript
+// De useSimuladorCore.ts
+const calcularTasaMensual = (tasaEASan: number): number => {
+  const ea = tasaEASan / 100;
+  if (!Number.isFinite(ea) || ea <= 0) return 0;
+  return Math.pow(1 + ea, 1 / 12) - 1;
+};
+
+const calcularCuotaMensual = (
+  monto: number,
+  plazo: number,
+  tasaMensual: number
+): number => {
+  const P = calcularMontoSan(monto);
+  const n = calcularPlazoSan(plazo);
+  const r = tasaMensual;
+
+  if (P <= 0 || n <= 0) return 0;
+  if (r <= 0) return P / n;
+
+  const denom = 1 - Math.pow(1 + r, -n);
+  if (denom <= 0) return 0;
+
+  return (P * r) / denom;
+};
+```
+
+### Capacidad de pago
+
+El simulador evalúa si la cuota propuesta cabe dentro de la capacidad disponible del solicitante:
+
+```typescript
+// Capacidad máxima = (ingreso bruto × maxEndeudamiento%) − seguridad social (8%)
+const calcularCapacidadPagoMaxima = (
+  ingresosBrutos: number,
+  maxEndeudamientoPct: number
+): number => {
+  const bruto = calcularIngresosBrutosSan(ingresosBrutos);
+  const maxEnd = calcularMaxEndeudamientoSan(maxEndeudamientoPct);
+  return (bruto * maxEnd) / 100 - bruto * 0.08;
+};
+
+// Disponible = capacidad máxima − descuentos actuales
+const calcularCapacidadDisponible = (
+  ingresosBrutos: number,
+  descuentos: number,
+  maxEndeudamientoPct: number
+): number => {
+  const capacidadMax = calcularCapacidadPagoMaxima(ingresosBrutos, maxEndeudamientoPct);
+  return Math.max(0, capacidadMax - calcularDescuentosSan(descuentos));
+};
+
+// ¿Apto? → cuota ≤ capacidad disponible
+const calcularApto = (
+  cuotaMensual: number,
+  capacidadDisponible: number
+): boolean => cuotaMensual <= capacidadDisponible;
+```
+
+### Funciones de utilidad
+
+| Función | Descripción |
+|---|---|
+| `calcularTotalPagar(cuota, plazo)` | Cuota × número de cuotas |
+| `calcularIntereses(totalPagar, monto)` | Total a pagar − capital inicial |
+| `convertirAnualAMensual(tasaEA)` | División simple `/ 12` (solo para visualización) |
+| `convertirMensualAAnual(tasaMensual)` | Multiplicación `× 12` (solo para visualización) |
+| `fmt(value)` | Formatea en COP con `Intl.NumberFormat` |
+| `fmtPct(value)` | Formatea porcentaje con 2 decimales |
+
+---
+
+## Líneas de Crédito
+
+Las líneas de crédito disponibles y sus parámetros financieros se obtienen desde la API externa SISU.
+
+<Tabs>
+  <Tab title="Tipos de crédito">
+    ```http
+    GET /api/lineas_credito/tipo-creditos
+    Authorization: Bearer <token>
+    ```
+
+    Retorna el catálogo de tipos de crédito (`tipcre`, `modxml4`, `detalle`, `numcuo`, `estado`, `pagseg`, `repdcr`, `tipfin`, `estcre`, `auxest`). Este listado es el que alimenta el selector de línea de crédito en el paso 1 del wizard.
+  </Tab>
+  <Tab title="Parámetros financieros">
+    ```http
+    GET /api/lineas_credito/parametros
+    Authorization: Bearer <token>
+    ```
+
+    Devuelve los parámetros financieros asociados a una línea: tasa de interés EA, plazo máximo, monto mínimo y máximo, y porcentaje máximo de endeudamiento. El simulador usa estos valores como límites de validación.
+  </Tab>
+</Tabs>
+
+---
+
+## Composables del Wizard
+
+<AccordionGroup>
+  <Accordion title="useWizardSolicitud">
+    Orquestador principal del wizard. Maneja la navegación entre pasos, el ciclo de carga inicial (`loadDataWizard`), el polling del número de solicitud disponible cada 30 segundos y el envío final. Persiste el paso activo en `localStorage` y limpia el estado tras el envío exitoso.
+
+    **Retorna:** `form`, `step`, `currentStep`, `currentStepKey`, `steps`, `next`, `prev`, `goToStep`, `goToStepByIndex`, `guardarSolicitud`, `clearWizardProgress`, entre otros.
+  </Accordion>
+  <Accordion title="useSolicitudCreditoForm">
+    Gestiona el estado reactivo del formulario completo (`SolicitudCreditoPayload`) usando `useState` para compartirlo entre componentes sin prop-drilling. Persiste el formulario en `localStorage` bajo la clave `comfaca_credito_solicitud_form` usando un `watch` profundo.
+
+    **Retorna:** `form`, `toggleConyuge`, `toggleEmpresaConyuge`, `autocalcularIngresos`, `addPropiedad`, `removePropiedad`, `addDeuda`, `removeDeuda`, `addReferencia`, `removeReferencia`, `reset`, `clearPersistedForm`.
+  </Accordion>
+  <Accordion title="useSolicitanteStep">
+    Encapsula la validación y la lógica específica del paso de datos del solicitante, incluyendo la búsqueda de municipios y la validación del número de documento.
+  </Accordion>
+  <Accordion title="useLaboralStep">
+    Gestiona la información laboral del solicitante: empresa, cargo, tipo de contrato y fechas. Incluye la validación del NIT empresarial contra el convenio activo vía la API SISU.
+  </Accordion>
+  <Accordion title="useConyugeStep">
+    Controla la sección condicional del cónyuge. Se activa mediante `toggleConyuge` y expone `toggleEmpresaConyuge` para el sub-formulario de empresa del cónyuge.
+  </Accordion>
+  <Accordion title="useRevisionStep">
+    Prepara el payload final para la revisión, computa los totales de ingresos/descuentos y expone el `prettyPayload` (JSON formateado) para visualización en desarrollo.
+  </Accordion>
+  <Accordion title="useDocumentos">
+    Maneja la carga de documentos requeridos para la solicitud: listado de tipos de documento requeridos por línea de crédito, subida de archivos y seguimiento del estado de completitud documental.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Estados de Solicitud
+
+El ciclo de vida de una solicitud sigue los siguientes estados definidos en `shared/types/enums.ts`:
+
+```typescript
+export type EstadoSolicitud =
+  | "POSTULADO"
+  | "DOCUMENTOS_CARGADOS"
+  | "ENVIADO_VALIDACION"
+  | "PENDIENTE_FIRMADO"
+  | "FIRMADO"
+  | "ENVIADO_PENDIENTE_APROBACION"
+  | "APROBADA"
+  | "RECHAZADA"
+  | "DESESTIMADA"
+  | "CANCELADA"
+  | "DESISTE";
+```
+
+| Estado | Descripción |
+|---|---|
+| `POSTULADO` | Solicitud recién creada, pendiente de documentos |
+| `DOCUMENTOS_CARGADOS` | El afiliado completó la carga de documentos requeridos |
+| `ENVIADO_VALIDACION` | Solicitud enviada al equipo de validación interna |
+| `PENDIENTE_FIRMADO` | En proceso de firma digital con FirmaPlus |
+| `FIRMADO` | Todos los firmantes completaron la firma electrónica |
+| `ENVIADO_PENDIENTE_APROBACION` | Remitida al comité de crédito para aprobación |
+| `APROBADA` | Crédito aprobado por COMFACA |
+| `RECHAZADA` | Solicitud rechazada por el comité |
+| `DESESTIMADA` | Descartada por información incompleta o inconsistente |
+| `CANCELADA` | Cancelada administrativamente |
+| `DESISTE` | El afiliado desistió voluntariamente del proceso |
+
+---
+
+<Note>
+  El middleware `validateSolicitudLimit` restringe el número de solicitudes activas simultáneas por afiliado. Si el usuario ya cuenta con una solicitud en estado activo (`POSTULADO`, `DOCUMENTOS_CARGADOS`, `ENVIADO_VALIDACION` o `PENDIENTE_FIRMADO`), el endpoint `POST /api/solicitudes/guardar-solicitud` retorna un error `422` indicando que debe completar o cancelar la solicitud existente antes de iniciar una nueva.
+</Note>

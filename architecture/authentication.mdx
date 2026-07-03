@@ -1,0 +1,385 @@
+---
+title: "Autenticación y Autorización en Comfaca Créditos"
+sidebarTitle: "Autenticación"
+description: "Flujo completo de autenticación JWT, sesiones con nuxt-auth-utils, middleware de servidor y protección de rutas en Comfaca Créditos."
+---
+
+La autenticación de Comfaca Créditos combina **sesiones de servidor** gestionadas por `nuxt-auth-utils` con **tokens JWT** firmados con `jose`. La sesión de servidor se almacena en una cookie HttpOnly cifrada, mientras que el JWT viaja en el `Authorization: Bearer` header y se valida en cada recarga para confirmar que la sesión sigue siendo válida.
+
+---
+
+## Flujo de Autenticación
+
+<Steps>
+  <Step title="Envío de credenciales">
+    El cliente realiza `POST /api/auth/login` con `{ username, password }`. Zod valida el cuerpo antes de que llegue al servicio: `username` debe tener al menos 3 caracteres y `password` al menos 8.
+  </Step>
+  <Step title="Verificación con bcrypt">
+    `authService.validateCredentials()` busca al usuario en la base de datos por `username` y compara la contraseña con el hash almacenado usando `bcrypt.compareSync(password, password_hash)`.
+  </Step>
+  <Step title="Creación de la sesión de servidor">
+    Si las credenciales son válidas, `setUserSession(event, { user: userSession, loggedInAt: new Date() })` de `nuxt-auth-utils` escribe la sesión en una cookie segura. La sesión tiene una duración máxima de **8 horas** (`auth.session.maxAge: 60 * 60 * 8`).
+  </Step>
+  <Step title="Emisión del JWT">
+    En paralelo, `authService.createToken(user)` genera un **JWT HS256** con expiración de **24 horas**, firmado con `NUXT_JWT_SECRET`. El payload incluye `sub` (ID numérico del usuario), `email` y `roles[]`. El issuer y audience son `"sistema-creditos"` y `"sistema-creditos-users"` respectivamente.
+  </Step>
+  <Step title="Respuesta al cliente">
+    El endpoint devuelve `{ user, access_token, token_type: "bearer" }`. El cliente almacena el token en el store de sesión (`SessionData.accessToken`) y lo adjunta en el header `Authorization` para las llamadas posteriores.
+  </Step>
+  <Step title="Verificación periódica">
+    El middleware del cliente llama a `GET /api/auth/verify` en cada navegación protegida. El endpoint valida el JWT, comprueba que el `sub` coincide con la sesión activa y devuelve los datos actualizados del usuario (incluido `trabajador` si aplica).
+  </Step>
+</Steps>
+
+---
+
+## Estructura de Sesión
+
+### Sesión de servidor (`nuxt-auth-utils`)
+
+La cookie de sesión contiene el objeto `User` definido en `shared/auth.d.ts`:
+
+```ts
+// shared/auth.d.ts
+declare module "#auth-utils" {
+  interface User {
+    id: string
+    email: string
+    name: string
+    roles: string[]
+    username: string
+    trabajador?: {
+      nit: string
+      estado: string
+      sucursal: string
+      phone: string
+      email: string
+    } | null
+    adviser?: {
+      estado: string
+      phone: string
+      email: string
+      codigo_funcionario: string
+      tipo_funcionario: string
+    } | null
+  }
+
+  interface UserSession {
+    loggedInAt: Date
+  }
+}
+```
+
+### Sesión del cliente
+
+El store del cliente (`SessionData`) definido en `shared/types/session.ts` es la fuente de verdad en el frontend:
+
+```ts
+// shared/types/session.ts
+export type SessionUser = {
+  username: string
+  roles: string[]
+  permissions: string[]
+  email: string
+  tipo_documento: string
+  numero_documento: string
+  nombres: string
+  apellidos: string
+  adviser_number?: string
+  asesor?: {
+    full_name: string
+    email: string
+    celular: string
+    codigo_funcionario: string
+    estado: string
+    tipo_funcionario: string
+  }
+  trabajador?: Trabajador | null
+  selected_punto?: PuntoAsesoria | null
+};
+
+export type SessionData = {
+  accessToken: string
+  tokenType: string
+  user: SessionUser | null
+};
+```
+
+### Payload del JWT
+
+```ts
+// shared/types/users-session.ts
+export interface JwtPayload {
+  sub: number    // ID numérico del usuario
+  email: string
+  roles: string[]
+  iat?: number   // Emitido en (Unix timestamp)
+  exp?: number   // Expira en (Unix timestamp)
+}
+```
+
+---
+
+## Middleware del Servidor
+
+Los middleware de servidor corren en orden para cada request a `/api/*`.
+
+### `server/middleware/auth.ts`
+
+Protege todas las rutas de la API excepto las rutas públicas declaradas en la lista blanca. Inyecta el usuario autenticado en `event.context.user` para que los handlers lo consuman sin re-leer la cookie.
+
+```ts
+// server/middleware/auth.ts
+const PUBLIC_ROUTES: string[] = [
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/recovery",
+  "/api/auth/adviser",
+  "/api/auth/verify",
+  "/api/auth/verify-code",
+  "/api/auth/resend-code",
+  "/api/health"
+];
+
+const PUBLIC_PREFIXES = [
+  "/api/public/"
+];
+
+export default defineEventHandler(async (event) => {
+  const url = getRequestURL(event);
+  const path = url.pathname;
+
+  // Solo intercepta rutas de la API (no páginas SSR)
+  if (!path.startsWith("/api/")) return;
+
+  // Excluir rutas internas de Nuxt (_nuxt) y payloads
+  if (path.includes("/_nuxt")) return;
+  if (path.endsWith("_payload.json")) return;
+
+  // Permite rutas públicas sin autenticación
+  if (PUBLIC_ROUTES.includes(path)) return;
+  if (PUBLIC_PREFIXES.some(prefix => path.startsWith(prefix))) return;
+
+  const session = await getUserSession(event).catch(() => null);
+
+  if (!session?.user) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: "No autenticado",
+      message: "Debe iniciar sesión para acceder a este recurso"
+    });
+  }
+
+  // Inyectar el usuario en el contexto del evento
+  event.context.user = session.user;
+});
+```
+
+### `server/middleware/admin.ts`
+
+Aplica exclusivamente a las rutas bajo `/api/admin`. Verifica que el usuario tenga el rol `"administrator"` en la sesión.
+
+```ts
+// server/middleware/admin.ts
+export default defineEventHandler(async (event) => {
+  if (!event.path.startsWith("/api/admin")) {
+    return;
+  }
+
+  const session = await requireUserSession(event);
+  const hasAdminRole = session.user.roles.includes("administrator");
+
+  if (!hasAdminRole) {
+    throw createError({
+      statusCode: 401,
+      message: "Unauthorized"
+    });
+  }
+
+  return;
+});
+```
+
+### `server/middleware/validateSolicitudLimit.ts`
+
+Aplica solo a los endpoints `POST /api/solicitudes/guardar-solicitud` y `POST /api/solicitudes/enviar-solicitud`. Consulta la configuración `limite_solicitudes` en base de datos y bloquea la creación si el usuario ya alcanzó el número máximo de solicitudes activas (estados: `guardada`, `enviada`, `en_revision`, `revision_comite`).
+
+```ts
+// server/middleware/validateSolicitudLimit.ts
+const SOLICITUDES_ACTIVAS_ESTADOS = [
+  "guardada",
+  "enviada",
+  "en_revision",
+  "revision_comite"
+];
+
+const SOLICITUD_CREATE_PATHS = [
+  "/api/solicitudes/guardar-solicitud",
+  "/api/solicitudes/enviar-solicitud"
+];
+
+export default defineEventHandler(async (event) => {
+  const path = event.path || "";
+  const method = event.method || "";
+
+  if (method !== "POST") return;
+
+  const isSolicitudPath = SOLICITUD_CREATE_PATHS.some((p) => path.includes(p));
+  if (!isSolicitudPath) return;
+
+  const session = await getUserSession(event).catch(() => null);
+  if (!session?.user?.username) return;
+
+  // Obtener límite configurable desde la tabla de configuraciones
+  const limiteStr = await configurationsService().getConfigurationByKey("limite_solicitudes");
+  const limite = limiteStr ? parseInt(limiteStr, 10) : 10;
+
+  if (isNaN(limite) || limite <= 0) return;
+
+  const count = await prisma.solicitudes_credito.count({
+    where: {
+      owner_username: session.user.username,
+      estado: { in: SOLICITUDES_ACTIVAS_ESTADOS }
+    }
+  });
+
+  if (count >= limite) {
+    setResponseStatus(event, 422);
+    event.node.res.end(
+      JSON.stringify(
+        CustomResponse.error(
+          `Has alcanzado el límite de ${limite} solicitudes activas.`,
+          "Límite de solicitudes alcanzado"
+        )
+      )
+    );
+  }
+});
+```
+
+<Note>
+  Si falla la consulta a la tabla de configuraciones (error de infraestructura), el middleware **no bloquea** la operación. El principio aplicado es *fail open* para no degradar la experiencia ante errores transitorios de base de datos.
+</Note>
+
+---
+
+## Middleware del Cliente
+
+```ts
+// app/middleware/auth.ts
+export default defineNuxtRouteMiddleware(
+  async (to: RouteLocationNormalized) => {
+    if (import.meta.server) return;
+
+    // Verificar si la ruta requiere autenticación
+    if (!shouldApplyAuthMiddleware(to.path)) {
+      return;
+    }
+
+    const { isAuthenticated, validateToken, clearSession, ready } = useSession();
+
+    // Esperar a que la sesión se cargue desde el storage
+    await ready;
+
+    // Redirigir si no hay token local
+    if (!isAuthenticated.value) {
+      const redirect = encodeURIComponent(to.fullPath || "/");
+      return navigateTo(`/login?redirect=${redirect}`);
+    }
+
+    // Validar token con backend en cada navegación
+    const isValid = await validateToken();
+    if (!isValid) {
+      await clearSession();
+      const redirect = encodeURIComponent(to.fullPath || "/");
+      return navigateTo(`/login?redirect=${redirect}&expired=true`);
+    }
+
+    // Verificar permisos específicos para la ruta destino
+    if (!hasPermissionForRoute(to.path, useSession().session.value.user?.roles || [])) {
+      return navigateTo("/dash");
+    }
+
+    return;
+  }
+);
+```
+
+El middleware solo corre en el cliente (`import.meta.server` guard) para evitar ejecución durante SSR. La lógica de qué rutas requieren autenticación y qué roles tienen acceso a qué rutas está centralizada en `app/config/auth.config.ts` (`shouldApplyAuthMiddleware` y `hasPermissionForRoute`).
+
+---
+
+## Roles y Permisos
+
+<AccordionGroup>
+  <Accordion title="user_trabajador — Afiliado trabajador">
+    Rol asignado automáticamente al registrarse. Permite gestionar sus propias solicitudes de crédito.
+
+    **Permisos:**
+    - `applications.create`
+    - `applications.edit`
+    - `applications.delete`
+    - `applications.view_own`
+
+    **Acceso:**
+    - Dashboard del afiliado (`/dash/*`)
+    - Gestión de solicitudes propias
+    - Carga y descarga de documentos propios
+    - Edición de perfil
+  </Accordion>
+
+  <Accordion title="user_empresa — Afiliado empresa">
+    Rol para usuarios de tipo empresa. Tiene los mismos permisos de operación sobre solicitudes que `user_trabajador`.
+
+    **Permisos:**
+    - `applications.create`
+    - `applications.edit`
+    - `applications.delete`
+    - `applications.view_own`
+  </Accordion>
+
+  <Accordion title="adviser — Asesor de crédito">
+    Rol para funcionarios de Comfaca que gestionan solicitudes. Puede ver todas las solicitudes, aprobar/rechazar y gestionar convenios y firmas.
+
+    **Permisos:**
+    - `applications.create`, `applications.edit`, `applications.delete`
+    - `applications.view_all`, `applications.approve`, `applications.reject`
+    - `solicitudes.manage`, `solicitudes.view`
+    - `convenios.manage`, `convenios.view`
+    - `firmas.manage`, `firmas.view`
+    - `system.admin`
+  </Accordion>
+
+  <Accordion title="administrator — Administrador del sistema">
+    Acceso completo. Puede gestionar usuarios, roles y toda la configuración del sistema.
+
+    **Permisos:**
+    - `users.create`, `users.edit`, `users.delete`, `users.view`
+    - `applications.create`, `applications.edit`, `applications.delete`, `applications.view_all`
+    - `roles.manage`
+    - `system.admin`
+
+    **Acceso adicional:**
+    - Panel administrativo completo (`/admin/*`)
+    - Gestión de usuarios y roles
+    - Gestión de convenios
+    - Inicio de proceso de firma digital
+    - Configuración del sistema
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Seguridad
+
+- **Hashing de contraseñas:** bcrypt con factor de coste 10 (`bcrypt.hashSync(password, 10)`).
+- **Sesiones HttpOnly:** `nuxt-auth-utils` almacena la sesión en una cookie cifrada y HttpOnly, inaccesible desde JavaScript del cliente.
+- **Expiración de sesión:** 8 horas (`auth.session.maxAge`). El JWT tiene expiración de 24 horas pero la sesión de servidor expira primero.
+- **Firma JWT:** algoritmo `HS256` con clave secreta de `NUXT_JWT_SECRET`. Issuer y audience son validados en cada verificación.
+- **Validación de entradas:** Zod valida todos los cuerpos de request en los endpoints de autenticación antes de llegar a la lógica de servicio.
+- **CORS:** Nitro hereda la configuración de CORS del preset `node-server`. En producción se recomienda restringir los `Access-Control-Allow-Origin` a los dominios propios.
+- **Cooldown de reenvío de PIN:** 30 segundos entre solicitudes de reenvío de código de verificación (`RESEND_COOLDOWN_MS = 30_000`).
+
+<Warning>
+  Las variables `NUXT_SESSION_PASSWORD` y `NUXT_JWT_SECRET` deben ser cadenas aleatorias de alta entropía (mínimo 32 caracteres) en entornos de producción. Nunca las reutilices entre entornos ni las almacenes en el repositorio. Usa un gestor de secretos o variables de entorno del servidor.
+</Warning>

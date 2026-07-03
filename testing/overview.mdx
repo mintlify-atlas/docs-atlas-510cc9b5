@@ -1,0 +1,243 @@
+---
+title: "Testing de Comfaca Créditos: Vitest, MSW y Playwright"
+sidebarTitle: "Testing"
+description: "Suite completa de pruebas de Comfaca Créditos con Vitest para unitarias e integración, MSW para mocks de APIs, y Playwright para pruebas E2E."
+---
+
+Comfaca Créditos en Línea cuenta con una estrategia de testing multicapa que cubre desde funciones individuales del servidor hasta flujos completos de usuario en el navegador. Las pruebas unitarias y de integración se ejecutan con **Vitest** sobre el runtime de Nuxt, los servicios externos (FlaskPDF, email) se interceptan con **MSW** para garantizar aislamiento, y los flujos críticos de la aplicación se validan de extremo a extremo con **Playwright** en Chromium, Firefox y Safari móvil.
+
+## Herramientas
+
+<CardGroup cols={3}>
+  <Card title="Vitest" icon="flask" href="https://vitest.dev">
+    Framework de pruebas unitarias e integración basado en Vite. Ejecuta proyectos paralelos para tests de servidor, cliente e integración con soporte nativo de TypeScript.
+  </Card>
+  <Card title="MSW" icon="shield-check" href="https://mswjs.io">
+    Mock Service Worker intercepta peticiones HTTP a nivel de red en Node.js, permitiendo simular las APIs externas de Flask PDF y el servicio de correo sin dependencias reales.
+  </Card>
+  <Card title="Playwright" icon="browsers" href="https://playwright.dev">
+    Framework de pruebas E2E que ejecuta escenarios reales en Chromium, Firefox y dispositivos móviles Safari. Graba trazas, capturas y vídeo ante fallos para depuración.
+  </Card>
+  <Card title="@nuxt/test-utils" icon="nuxt" href="https://nuxt.com/docs/getting-started/testing">
+    Utilidades oficiales de Nuxt para testing. Levanta el servidor completo de Nuxt (incluyendo Nitro) en un puerto dedicado durante las pruebas de integración.
+  </Card>
+  <Card title="@vue/test-utils" icon="vuejs" href="https://test-utils.vuejs.org">
+    Biblioteca de montaje de componentes Vue 3. Permite renderizar, interactuar y hacer aserciones sobre componentes de forma aislada con `happy-dom` como entorno DOM.
+  </Card>
+</CardGroup>
+
+## Tipos de Pruebas
+
+<Tabs>
+  <Tab title="Unitarias">
+    Las pruebas unitarias validan funciones, composables y servicios de forma aislada, sin levantar el servidor ni realizar peticiones reales.
+
+    Se ubican en `tests/unit/` y se ejecutan con el proyecto `server-unit` (entorno Node) y `client-unit` (entorno `happy-dom`) definidos en `vitest.config.ts`.
+
+    ```bash
+    # Ejecutar todas las pruebas unitarias
+    pnpm test:unit
+
+    # Solo el proyecto de servidor
+    pnpm test:unit:server
+
+    # Solo el proyecto de cliente (componentes Vue)
+    pnpm test:unit:client
+    ```
+
+    El setup global en `tests/setup/global.ts` silencia los `console.warn` irrelevantes y limpia todos los mocks automáticamente entre pruebas con `vi.clearAllMocks()` y `vi.restoreAllMocks()`.
+  </Tab>
+  <Tab title="Integración">
+    Las pruebas de integración verifican los endpoints de la API end-to-end a nivel HTTP, levantando el servidor Nuxt completo en el puerto **4000** mediante `@nuxt/test-utils`.
+
+    Se ubican en `tests/integration/api/` y cubren autenticación, convenios y solicitudes de crédito. MSW intercepta las llamadas salientes a APIs externas para mantener el aislamiento.
+
+    ```bash
+    # Ejecutar solo el proyecto de integración
+    pnpm test:integration
+
+    # Ejecutar un subconjunto específico
+    pnpm vitest run tests/integration/api/solicitudes/
+    ```
+
+    El setup de integración en `tests/setup/integration.ts` llama a `setup({ rootDir: '.', server: true, port: 4000 })` de `@nuxt/test-utils/e2e` antes de que comience cualquier prueba.
+  </Tab>
+  <Tab title="E2E">
+    Las pruebas E2E utilizan **Playwright** para simular la interacción real de un usuario en el navegador. Los tests se ubican en `tests/e2e/` y pueden ejecutarse contra la build de producción o el servidor de desarrollo.
+
+    ```bash
+    # Ejecutar todas las pruebas E2E (modo headless)
+    pnpm test:e2e
+
+    # Abrir la UI interactiva de Playwright
+    pnpm test:e2e:ui
+    ```
+
+    En entorno CI, Playwright ejecuta con 1 worker y 2 reintentos por fallo. En local, utiliza todos los workers disponibles sin reintentos. Los reportes HTML se generan en `tests/e2e/reports/`.
+
+    Los navegadores configurados son:
+
+    | Proyecto | Dispositivo |
+    |---|---|
+    | `chromium` | Desktop Chrome |
+    | `firefox` | Desktop Firefox |
+    | `mobile-safari` | iPhone 14 |
+  </Tab>
+</Tabs>
+
+## Estructura de Tests
+
+```
+tests/
+├── setup/
+│   ├── global.ts        # Setup global: silencia warns, limpia mocks
+│   ├── integration.ts   # Levanta servidor Nuxt en puerto 4000
+│   ├── msw.ts           # Configura el servidor MSW de Node.js
+│   └── server.ts        # Fuerza NODE_ENV=test y NITRO_PRESET=node
+├── integration/
+│   └── api/
+│       ├── auth-login.spec.ts
+│       ├── auth-register.spec.ts
+│       ├── user-perfil.spec.ts
+│       ├── admin/
+│       │   └── convenios/
+│       │       ├── convenios.index.get.spec.ts
+│       │       ├── convenios.id.get.spec.ts
+│       │       ├── convenios.create.post.spec.ts
+│       │       └── convenios.id.put.spec.ts
+│       └── solicitudes/
+│           ├── generar-pdf.spec.ts
+│           └── guardar-solicitud.spec.ts
+├── unit/                # Pruebas unitarias de servicios y composables
+└── e2e/                 # Pruebas de extremo a extremo con Playwright
+    └── reports/         # Reportes HTML generados por Playwright
+```
+
+## Tests de Integración API
+
+La siguiente tabla resume los endpoints cubiertos por la suite de integración, la cantidad de casos de prueba y lo que cada grupo valida:
+
+| Endpoint | Tests | Descripción |
+|---|---|---|
+| `POST /api/solicitudes/:id/generar-pdf` | 8 | Generación de PDF con mock de Flask PDF. Valida autenticación, existencia de la solicitud y respuesta del servicio externo mockeado. |
+| `POST /api/solicitudes/guardar-solicitud` | 15 | Creación de solicitudes con validación Zod. Cubre casos felices, campos faltantes, tipos incorrectos y conflictos de negocio. |
+| `POST /api/auth/register` | 14 | Registro de usuarios con mock del servicio de email. Prueba validaciones de contraseña, unicidad de usuario y envío de correo de bienvenida. |
+| `GET /api/admin/convenios/:id` | 6 | Consulta de convenios con autenticación de administrador. Valida autorización por rol, convenio inexistente y formato de respuesta. |
+
+## Configuración de Vitest
+
+El archivo `vitest.config.ts` utiliza `defineVitestConfig` de `@nuxt/test-utils` para heredar la configuración de Vite/Nuxt y expone tres proyectos independientes:
+
+```typescript
+import { defineVitestConfig } from "@nuxt/test-utils/config";
+
+export default defineVitestConfig({
+  test: {
+    setupFiles: ["./tests/setup/global.ts"],
+    alias: {
+      "~": new URL("./app/", import.meta.url).pathname,
+      "~~": new URL("./", import.meta.url).pathname,
+      "@": new URL("./app/", import.meta.url).pathname,
+      "@tests": new URL("./tests/", import.meta.url).pathname
+    },
+    exclude: ["**/node_modules/**", "**/.nuxt/**", "**/dist/**", "tests/e2e/**", "tests/integration/**"],
+    include: ["tests/unit/**/*.spec.ts"],
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html", "lcov"],
+      reportsDirectory: "./coverage",
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 75,
+        statements: 80
+      },
+      include: ["server/**/*.ts", "app/**/*.ts"],
+      exclude: [
+        "node_modules",
+        ".nuxt",
+        "nuxt.config.ts",
+        "**/*.d.ts",
+        "**/index.ts",
+        "server/plugins/**"
+      ]
+    }
+  }
+});
+```
+
+| Proyecto | Descripción |
+|---|---|
+| `server-unit` | Pruebas unitarias del código del servidor Nitro (Node.js) |
+| `client-unit` | Pruebas unitarias de componentes Vue con `happy-dom` |
+| `integration` | Pruebas de integración HTTP contra el servidor levantado en puerto 4000 |
+
+Los umbrales de cobertura exigen un mínimo de **80 %** en líneas, funciones y sentencias, y **75 %** en ramas. El reporte se genera en `./coverage/` en formatos `text`, `json`, `html` y `lcov`.
+
+## Mock Service Worker (MSW)
+
+MSW intercepta las peticiones HTTP salientes a las APIs externas directamente en la capa de red de Node.js, sin necesidad de modificar el código de producción. El servidor MSW se configura en `tests/setup/msw.ts`:
+
+```typescript
+import { setupServer } from "msw/node";
+import { http, HttpResponse } from "msw";
+
+export const mswServer = setupServer();
+
+mswServer.use(
+  http.post("https://api.example.com/charge", () => {
+    return HttpResponse.json({
+      id: "ch_test_123",
+      status: "approved",
+      amount: 150000
+    });
+  })
+);
+
+export function setupMSW() {
+  beforeAll(() => mswServer.listen({ onUnhandledRequest: "warn" }));
+  afterEach(() => mswServer.resetHandlers());
+  afterAll(() => mswServer.close());
+}
+```
+
+Cada suite de integración importa `setupMSW()` y registra sus propios handlers adicionales con `mswServer.use(...)` para simular las respuestas específicas que necesita. Las solicitudes no manejadas emiten una advertencia (`onUnhandledRequest: "warn"`) para detectar llamadas inesperadas a servicios reales.
+
+Los handlers se reinician después de cada prueba con `mswServer.resetHandlers()`, garantizando que los handlers de un test no contaminen los siguientes.
+
+## Ejecutar Tests
+
+```bash
+# Todos los tests en modo watch (desarrollo)
+pnpm test
+
+# Pruebas unitarias (ejecución única)
+pnpm test:unit
+
+# Solo el proyecto de servidor
+pnpm test:unit:server
+
+# Solo el proyecto de cliente (componentes Vue)
+pnpm test:unit:client
+
+# Solo pruebas de integración
+pnpm test:integration
+
+# Pruebas E2E con Playwright (headless)
+pnpm test:e2e
+
+# Pruebas E2E con UI interactiva de Playwright
+pnpm test:e2e:ui
+
+# Cobertura de código (genera reporte en ./coverage/)
+pnpm test:coverage
+
+# UI interactiva de Vitest
+pnpm test:ui
+```
+
+<Note>
+  Las pruebas de integración requieren que el servidor Nuxt pueda levantarse en el **puerto 4000**. `@nuxt/test-utils` lo inicia automáticamente antes de ejecutar los tests, pero el puerto debe estar libre. Si tienes otra instancia del servidor en ese puerto, deténla antes de correr `pnpm test:integration`.
+</Note>

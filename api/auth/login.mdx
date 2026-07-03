@@ -1,0 +1,146 @@
+---
+title: "POST /api/auth/login — Iniciar Sesión en Comfaca Créditos"
+sidebarTitle: "POST /login"
+description: "Autentica un usuario con username y password. Crea una sesión HTTP con JWT de 8 horas. Devuelve los datos del usuario autenticado."
+---
+
+El endpoint de login es la puerta de entrada a **Comfaca Créditos en Línea**. Recibe las credenciales del afiliado, las valida contra el backend de autenticación y, si son correctas, establece una cookie de sesión segura con una vida útil de **8 horas**. Todos los endpoints protegidos de la API requieren que esta cookie esté presente y sea válida.
+
+La validación del cuerpo de la petición se realiza con **Zod** antes de llegar al servicio de autenticación; cualquier campo faltante o inválido devuelve un `422` con los detalles del error antes de realizar ninguna consulta al backend.
+
+---
+
+## POST /api/auth/login
+
+**Autenticación:** No requiere autenticación previa.
+
+### Cuerpo de la petición
+
+<ParamField body="username" type="string" required>
+  Nombre de usuario registrado en Comfaca Créditos. Debe tener al menos **3 caracteres**. Generalmente corresponde al número de documento o al email del afiliado.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Contraseña del usuario. Debe tener al menos **8 caracteres**.
+</ParamField>
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  `true` cuando las credenciales son válidas y la sesión fue creada exitosamente.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Mensaje descriptivo del resultado, por ejemplo `"Login completado."`.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Objeto con los datos del usuario autenticado y el token de sesión.
+
+  <Expandable title="Propiedades de data">
+    <ResponseField name="data.user" type="object">
+      Datos del usuario autenticado.
+
+      <Expandable title="Propiedades de user">
+        <ResponseField name="data.user.username" type="string">
+          Nombre de usuario único en el sistema.
+        </ResponseField>
+        <ResponseField name="data.user.email" type="string">
+          Correo electrónico del usuario.
+        </ResponseField>
+        <ResponseField name="data.user.nombres" type="string">
+          Nombres del afiliado tal como fueron registrados (en mayúsculas).
+        </ResponseField>
+        <ResponseField name="data.user.apellidos" type="string">
+          Apellidos del afiliado (en mayúsculas).
+        </ResponseField>
+        <ResponseField name="data.user.tipo_documento" type="string">
+          Código del tipo de documento de identidad (ej. `"CC"`, `"CE"`).
+        </ResponseField>
+        <ResponseField name="data.user.numero_documento" type="string">
+          Número de documento de identidad del afiliado.
+        </ResponseField>
+        <ResponseField name="data.user.telefono" type="string">
+          Número de teléfono móvil del afiliado.
+        </ResponseField>
+        <ResponseField name="data.user.roles" type="string[]">
+          Lista de roles asignados al usuario, por ejemplo `["afiliado"]` o `["administrator"]`.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="data.message" type="string">
+      Mensaje adicional proveniente del servicio de autenticación.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `401` | Credenciales inválidas | El `username` o `password` no coinciden con ningún usuario registrado. |
+| `422` | Error de validación Zod | El cuerpo de la petición no cumple el esquema: `username` < 3 caracteres, `password` < 8 caracteres o campos ausentes. |
+| `500` / `502` | Error interno | Fallo al conectar con el backend de autenticación o error inesperado del servidor. |
+
+---
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -c cookies.txt \
+  -d '{"username": "usuario@empresa.com", "password": "miPassword123"}'
+```
+
+<Tip>
+  La bandera `-c cookies.txt` guarda la cookie de sesión en un archivo local. Úsala junto con `-b cookies.txt` en las peticiones subsiguientes para enviar la sesión automáticamente.
+</Tip>
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Login completado.",
+  "data": {
+    "user": {
+      "username": "usuario@empresa.com",
+      "email": "USUARIO@EMPRESA.COM",
+      "nombres": "JUAN CARLOS",
+      "apellidos": "PÉREZ GÓMEZ",
+      "tipo_documento": "CC",
+      "numero_documento": "1012345678",
+      "telefono": "3001234567",
+      "roles": ["afiliado"]
+    },
+    "message": "Bienvenido a Comfaca Créditos."
+  }
+}
+```
+
+### Ejemplo — Error `401` (credenciales inválidas)
+
+```json
+{
+  "success": false,
+  "message": "Error en el proceso de login.",
+  "error": "Credenciales inválidas"
+}
+```
+
+### Ejemplo — Error `422` (validación Zod)
+
+```json
+{
+  "success": false,
+  "message": "Error en el proceso de login.",
+  "error": "Password debe tener al menos 8 caracteres"
+}
+```
+
+---
+
+<Note>
+  La sesión creada por este endpoint tiene una duración máxima de **8 horas** (`maxAge: 60 * 60 * 8`). Pasado ese tiempo, la cookie expira automáticamente y el usuario deberá autenticarse de nuevo. Para cerrar la sesión de forma explícita, consulta [POST /api/auth/logout](/api/auth/session).
+</Note>

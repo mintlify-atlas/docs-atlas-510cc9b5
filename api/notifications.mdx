@@ -1,0 +1,309 @@
+---
+title: "API de Notificaciones In-App — Comfaca Créditos"
+sidebarTitle: "Notificaciones"
+description: "Gestiona notificaciones in-app: listar, contar no leídas, marcar como leídas y eliminar con los endpoints /api/notifications."
+---
+
+El sistema de notificaciones in-app de **Comfaca Créditos en Línea** permite mantener a los usuarios informados sobre eventos relevantes de sus solicitudes — cambios de estado, vencimientos de plazo, firmas digitales pendientes y más. Cada notificación pertenece exclusivamente al usuario autenticado (`owner_username`), y el servidor lleva registro del momento exacto en que fue leída (`read_at`). Todos los endpoints de esta sección requieren una sesión activa.
+
+<Note>
+  Todos los endpoints de `/api/notifications` requieren autenticación mediante cookie de sesión. Las peticiones sin sesión válida reciben una respuesta `401 No hay sesión activa`.
+</Note>
+
+---
+
+## GET /api/notifications
+
+Retorna la lista de notificaciones del usuario autenticado, ordenadas de más reciente a más antigua. Incluye el conteo de no leídas y el total de notificaciones del usuario.
+
+### Query Parameters
+
+<ParamField query="unread" type="boolean" default="false">
+  Si se envía `true`, filtra y retorna únicamente las notificaciones no leídas (aquellas cuyo `read_at` es `null`).
+</ParamField>
+
+<ParamField query="limit" type="number" default="50">
+  Cantidad máxima de notificaciones a retornar. Por defecto `50`.
+</ParamField>
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Notificaciones obtenidas exitosamente",
+  "data": {
+    "notifications": [
+      {
+        "id": "b3f1c2d4-89ab-4cde-bf01-23456789abcd",
+        "type": "estado_solicitud",
+        "data": {
+          "solicitud_id": "42",
+          "estado": "aprobada",
+          "mensaje": "Su solicitud de crédito ha sido aprobada."
+        },
+        "read_at": null,
+        "created_at": "2026-03-15T14:30:00.000Z",
+        "owner_username": "jdoe",
+        "notifiable_type": "User",
+        "notifiable_id": "1",
+        "updated_at": "2026-03-15T14:30:00.000Z"
+      }
+    ],
+    "unread_count": 3,
+    "total": 12
+  }
+}
+```
+
+<Expandable title="Campos del objeto notification">
+  <ResponseField name="id" type="string">
+    Identificador único UUID de la notificación.
+  </ResponseField>
+  <ResponseField name="type" type="string">
+    Tipo de notificación. Ejemplos: `estado_solicitud`, `firma_digital`, `plazo_vencimiento`, `sistema`.
+  </ResponseField>
+  <ResponseField name="data" type="object">
+    Payload JSON con información específica del evento que generó la notificación (campos variables según el `type`).
+  </ResponseField>
+  <ResponseField name="read_at" type="string | null">
+    Timestamp ISO 8601 del momento en que el usuario leyó la notificación. `null` si aún no ha sido leída.
+  </ResponseField>
+  <ResponseField name="created_at" type="string">
+    Timestamp ISO 8601 de creación de la notificación.
+  </ResponseField>
+  <ResponseField name="owner_username" type="string">
+    Nombre de usuario propietario de la notificación.
+  </ResponseField>
+  <ResponseField name="notifiable_type" type="string">
+    Tipo de entidad notificable (siempre `"User"` en la implementación actual).
+  </ResponseField>
+  <ResponseField name="notifiable_id" type="string">
+    ID de la entidad notificable asociada.
+  </ResponseField>
+  <ResponseField name="updated_at" type="string">
+    Timestamp ISO 8601 de la última actualización del registro.
+  </ResponseField>
+  <ResponseField name="unread_count" type="number">
+    (Raíz del `data`) Total de notificaciones no leídas del usuario.
+  </ResponseField>
+  <ResponseField name="total" type="number">
+    (Raíz del `data`) Total de notificaciones del usuario (leídas y no leídas).
+  </ResponseField>
+</Expandable>
+
+### Ejemplo curl
+
+```bash
+# Listar todas las notificaciones (máx. 50)
+curl -X GET "https://tu-dominio.com/api/notifications" \
+  -H "Cookie: nuxt-session=<token>"
+
+# Solo notificaciones no leídas
+curl -X GET "https://tu-dominio.com/api/notifications?unread=true" \
+  -H "Cookie: nuxt-session=<token>"
+
+# Con límite personalizado
+curl -X GET "https://tu-dominio.com/api/notifications?limit=10" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+---
+
+## GET /api/notifications/unread-count
+
+Retorna únicamente el conteo de notificaciones no leídas del usuario autenticado. Ideal para actualizar badges en la UI sin cargar el listado completo.
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "data": {
+    "unread_count": "5"
+  }
+}
+```
+
+<ResponseField name="unread_count" type="string">
+  Número de notificaciones no leídas del usuario, retornado como cadena de texto.
+</ResponseField>
+
+### Ejemplo curl
+
+```bash
+curl -X GET "https://tu-dominio.com/api/notifications/unread-count" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+---
+
+## PUT /api/notifications/:id/read
+
+Marca una notificación específica como leída, estableciendo su campo `read_at` con la fecha y hora actuales. Solo el propietario de la notificación puede marcarla como leída.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  UUID de la notificación a marcar como leída.
+</ParamField>
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Notificación marcada como leída",
+  "data": null
+}
+```
+
+### Códigos de error
+
+| Código | Causa |
+|--------|-------|
+| `400`  | No se proporcionó el `id` de la notificación |
+| `401`  | No hay sesión activa |
+| `403`  | La notificación pertenece a otro usuario |
+| `404`  | La notificación no existe |
+
+### Ejemplo curl
+
+```bash
+curl -X PUT "https://tu-dominio.com/api/notifications/b3f1c2d4-89ab-4cde-bf01-23456789abcd/read" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+---
+
+## PUT /api/notifications/mark-all-read
+
+Marca **todas** las notificaciones no leídas del usuario autenticado como leídas en una sola operación. Retorna el número de notificaciones afectadas.
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Notificaciones marcadas como leídas",
+  "data": {
+    "marked_count": 7
+  }
+}
+```
+
+<ResponseField name="marked_count" type="number">
+  Cantidad de notificaciones que fueron marcadas como leídas en la operación.
+</ResponseField>
+
+### Ejemplo curl
+
+```bash
+curl -X PUT "https://tu-dominio.com/api/notifications/mark-all-read" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+---
+
+## DELETE /api/notifications/:id
+
+Elimina permanentemente una notificación. Solo el propietario de la notificación puede eliminarla.
+
+<Warning>
+  Esta operación es **irreversible**. La notificación se elimina definitivamente de la base de datos.
+</Warning>
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  UUID de la notificación a eliminar.
+</ParamField>
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Notificación eliminada exitosamente",
+  "data": null
+}
+```
+
+### Códigos de error
+
+| Código | Causa |
+|--------|-------|
+| `400`  | No se proporcionó el `id` de la notificación |
+| `401`  | No hay sesión activa |
+| `403`  | La notificación pertenece a otro usuario |
+| `404`  | La notificación no existe |
+
+### Ejemplo curl
+
+```bash
+curl -X DELETE "https://tu-dominio.com/api/notifications/b3f1c2d4-89ab-4cde-bf01-23456789abcd" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+---
+
+## Uso con el Composable `useNotifications`
+
+El frontend consume estos endpoints a través del composable `useNotifications`, que gestiona el estado reactivo de las notificaciones en la aplicación Nuxt 4:
+
+```typescript
+// Uso básico del composable
+const {
+  notifications,
+  unreadCount,
+  markAllRead
+} = useNotifications()
+
+// Marcar todas las notificaciones como leídas
+await markAllRead()
+
+// El conteo se actualiza reactivamente
+console.log(`Notificaciones no leídas: ${unreadCount.value}`)
+```
+
+```typescript
+// Ejemplo más completo con manejo de estado
+const {
+  notifications,
+  unreadCount,
+  markAllRead
+} = useNotifications()
+
+// Escuchar cambios en tiempo real
+watch(unreadCount, (newCount) => {
+  if (Number(newCount) > 0) {
+    // Mostrar badge en el icono de la campana
+    updateBadge(Number(newCount))
+  }
+})
+
+// En un componente de lista de notificaciones
+async function handleMarkAllRead() {
+  await markAllRead()
+  // unreadCount se actualiza automáticamente a 0
+}
+```
+
+---
+
+## Resumen de Endpoints
+
+<CardGroup cols={2}>
+  <Card title="GET /api/notifications" icon="bell">
+    Lista notificaciones del usuario con soporte para filtros `unread` y `limit`.
+  </Card>
+  <Card title="GET /api/notifications/unread-count" icon="hashtag">
+    Conteo rápido de notificaciones no leídas para badges en la UI.
+  </Card>
+  <Card title="PUT /api/notifications/:id/read" icon="check">
+    Marca una notificación individual como leída por su UUID.
+  </Card>
+  <Card title="PUT /api/notifications/mark-all-read" icon="check-double">
+    Marca todas las notificaciones pendientes como leídas en lote.
+  </Card>
+</CardGroup>

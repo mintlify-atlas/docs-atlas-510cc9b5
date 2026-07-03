@@ -1,0 +1,337 @@
+---
+title: "Integrar Servicios Externos: SISU, FirmaPlus y FlaskPDF"
+sidebarTitle: "Servicios Externos"
+description: "Configura las integraciones con API SISU, FirmaPlus, FlaskPDF, SFTP y el servicio de correo SMTP en Comfaca Créditos."
+---
+
+Comfaca Créditos en Línea depende de cuatro integraciones externas para operar su flujo completo de solicitud de crédito: **API SISU** para la validación de afiliados, **FirmaPlus** para la firma digital de contratos, **FlaskPDF** para la generación de documentos PDF y **SFTP** para el almacenamiento remoto de archivos. Adicionalmente, el servicio de **correo SMTP** gestiona todas las notificaciones transaccionales hacia los usuarios. Esta página describe cómo configurar cada uno.
+
+---
+
+## API SISU (SISUWEB)
+
+La API SISU es el sistema de información de COMFACA que permite validar si una persona es afiliada activa, consultar sus datos laborales y verificar sus descuentos actuales. Es el primer punto de integración en el flujo de postulación: sin una respuesta válida de SISU no puede avanzar la solicitud.
+
+El cliente está implementado en `server/services/api-sisuweb.ts` y soporta dos modos de autenticación según el valor de `API_SISU_TYPE_AUTH`:
+
+- **`Basic`** — codifica `API_SISU_BASIC_USER:API_SISU_BASIC_PASSWORD` en Base64 y lo envía como encabezado `Authorization: Basic <token>`. Es el modo predeterminado y el más común en despliegues internos.
+- **`Bearer`** — obtiene un JWT haciendo `POST /token` con `client_id` y `password`, luego lo adjunta como `Authorization: Bearer <token>` en cada petición subsiguiente.
+
+El toggle entre URL de producción y desarrollo se controla con `API_SISU_ENV`:
+
+```
+API_SISU_ENV=pro  →  usa API_SISU_URL_PRO
+API_SISU_ENV=dev  →  usa API_SISU_URL_DEV
+```
+
+### Variables de entorno
+
+<ParamField path="API_SISU_ENV" type="string" default="pro">
+  Selector de entorno activo. Valores: `pro` (URL de producción) o `dev` (URL de desarrollo/pruebas).
+</ParamField>
+
+<ParamField path="API_SISU_URL_PRO" type="string" required>
+  URL base del endpoint de producción de SISUWEB. Ejemplo: `http://192.168.10.5:8080/api/v1`.
+</ParamField>
+
+<ParamField path="API_SISU_URL_DEV" type="string" required>
+  URL base del endpoint de desarrollo de SISUWEB. Puede apuntar a un servidor de pruebas o a un mock local.
+</ParamField>
+
+<ParamField path="API_SISU_TYPE_AUTH" type="string" default="Basic">
+  Modo de autenticación. `Basic` para credenciales fijas; `Bearer` para token dinámico.
+</ParamField>
+
+<ParamField path="API_SISU_BASIC_USER" type="string">
+  Usuario para autenticación Basic. Requerido cuando `API_SISU_TYPE_AUTH=Basic`.
+</ParamField>
+
+<ParamField path="API_SISU_BASIC_PASSWORD" type="string">
+  Contraseña para autenticación Basic. Requerida cuando `API_SISU_TYPE_AUTH=Basic`.
+</ParamField>
+
+<ParamField path="API_SISU_CLIENT_ID" type="string">
+  Client ID para el flujo de token Bearer. Requerido cuando `API_SISU_TYPE_AUTH=Bearer`.
+</ParamField>
+
+<ParamField path="API_SISU_PASSWORD" type="string">
+  Contraseña para el flujo de token Bearer. Requerida cuando `API_SISU_TYPE_AUTH=Bearer`.
+</ParamField>
+
+### Ejemplo de configuración (modo Basic)
+
+```ini
+API_SISU_ENV=pro
+API_SISU_URL_PRO="http://10.0.0.20:8080/sisuweb/api"
+API_SISU_URL_DEV="http://localhost:8081/sisuweb/api"
+API_SISU_TYPE_AUTH="Basic"
+API_SISU_BASIC_USER="comfaca_api"
+API_SISU_BASIC_PASSWORD="contraseña_segura"
+```
+
+---
+
+## API FirmaPlus
+
+FirmaPlus es la plataforma de firma digital utilizada para que los firmantes de un contrato de crédito (solicitante, codeudor, representante legal) estampen su firma electrónica de manera legalmente válida en Colombia. El servicio gestiona el ciclo completo: creación de la solicitud de firma, envío de enlace a firmantes y consulta del estado.
+
+El cliente está implementado en `server/services/api-firmaplus.ts` e incluye un **modo mock completo para desarrollo**: cuando `API_FIRMA_ENV=dev`, todas las llamadas retornan respuestas simuladas con IDs de solicitud prefijados `MOCK-<timestamp>` sin contactar el servidor real. Esto permite desarrollar y probar el flujo completo sin necesidad de acceso al sandbox de FirmaPlus.
+
+Los endpoints utilizados por el servicio son:
+
+| Método | Endpoint                     | Descripción                                  |
+|--------|------------------------------|----------------------------------------------|
+| `POST` | `/signer`                    | Crea una solicitud de firma con los firmantes |
+| `POST` | `/generarsolicitud`          | Genera la solicitud formal en FirmaPlus       |
+| `POST` | `/certificar`                | Certifica el documento firmado                |
+| `GET`  | `/consultarsolicitud/{id}`   | Consulta el estado de una solicitud           |
+| `PUT`  | `/cancelarsolicitud`         | Cancela una solicitud de firma activa         |
+
+<Note>
+  El servicio FirmaPlus en producción requiere que el servidor Nuxt tenga conectividad saliente hacia `firmaplus.co`. En algunos despliegues con nohup o PM2, asegúrate de que el proceso tiene acceso a internet y que el firewall permite conexiones HTTPS salientes al puerto 443 hacia `firmaplus.co`.
+</Note>
+
+### Variables de entorno
+
+<ParamField path="API_FIRMA_ENV" type="string" default="dev">
+  Selector de entorno. `pro` → conecta con `firmaplus.co/Risk/api`; cualquier otro valor → usa la URL de sandbox **y activa las respuestas mock** sin hacer llamadas reales.
+</ParamField>
+
+<ParamField path="API_FIRMA_URL_PRO" type="string" default="https://firmaplus.co/Risk/api">
+  URL base del entorno de producción de FirmaPlus.
+</ParamField>
+
+<ParamField path="API_FIRMA_URL_DEV" type="string" default="https://firmaplus.co/FirmaPlusPruebas/api">
+  URL base del sandbox de pruebas de FirmaPlus. En modo `dev` no se usa directamente (las respuestas son mock), pero debe estar configurada para cuando se requiera prueba real contra el sandbox.
+</ParamField>
+
+<ParamField path="API_FIRMA_TYPE_AUTH" type="string" default="Basic">
+  Modo de autenticación. Actualmente soportado: `Basic`.
+</ParamField>
+
+<ParamField path="API_FIRMA_BASIC_USER" type="string" required>
+  Usuario para autenticación Basic con FirmaPlus.
+</ParamField>
+
+<ParamField path="API_FIRMA_BASIC_PASSWORD" type="string" required>
+  Contraseña para autenticación Basic con FirmaPlus.
+</ParamField>
+
+<ParamField path="API_FIRMA_CLIENT_ID" type="string">
+  Client ID OAuth2 de FirmaPlus (reservado para flujo Bearer).
+</ParamField>
+
+<ParamField path="API_FIRMA_PASSWORD" type="string">
+  Contraseña OAuth2 de FirmaPlus (reservado para flujo Bearer).
+</ParamField>
+
+### Ejemplo de configuración
+
+```ini
+# Sandbox para desarrollo (respuestas mock activas)
+API_FIRMA_ENV=dev
+API_FIRMA_URL_PRO="https://firmaplus.co/Risk/api"
+API_FIRMA_URL_DEV="https://firmaplus.co/FirmaPlusPruebas/api"
+API_FIRMA_TYPE_AUTH="Basic"
+API_FIRMA_BASIC_USER="comfaca_test"
+API_FIRMA_BASIC_PASSWORD="clave_sandbox"
+```
+
+```ini
+# Producción (llamadas reales)
+API_FIRMA_ENV=pro
+API_FIRMA_URL_PRO="https://firmaplus.co/Risk/api"
+API_FIRMA_URL_DEV="https://firmaplus.co/FirmaPlusPruebas/api"
+API_FIRMA_TYPE_AUTH="Basic"
+API_FIRMA_BASIC_USER="comfaca_prod"
+API_FIRMA_BASIC_PASSWORD="clave_produccion_segura"
+```
+
+---
+
+## API FlaskPDF
+
+FlaskPDF es un microservicio Python (Flask) que genera los documentos PDF contractuales del crédito a partir de los datos de la solicitud. El Nuxt server lo llama justo antes de iniciar el proceso de firma digital para que el documento firmado corresponda al contrato real.
+
+El cliente está implementado en `server/services/api-flaskpdf.ts`. Usa exclusivamente autenticación **Basic HTTP** y expone un único método de alto nivel:
+
+```ts
+const flaskpdf = apiFlaskPdf();
+const result = await flaskpdf.generatePdf(datosSolicitud);
+// POST /creditos/generate-pdf con Authorization: Basic <token>
+```
+
+### Variables de entorno
+
+<ParamField path="API_FLASKPDF_URL" type="string" required>
+  URL base del microservicio FlaskPDF. Ejemplo: `http://localhost:5000`. El servicio llamará a `POST {API_FLASKPDF_URL}/creditos/generate-pdf`.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_USER" type="string" required>
+  Usuario para autenticación Basic HTTP con FlaskPDF.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_PASSWORD" type="string" required>
+  Contraseña para autenticación Basic HTTP con FlaskPDF. El token se construye como `Base64(API_FLASKPDF_USER:API_FLASKPDF_PASSWORD)`.
+</ParamField>
+
+### Ejemplo de configuración
+
+```ini
+API_FLASKPDF_URL="http://localhost:5000"
+API_FLASKPDF_USER="pdf_service"
+API_FLASKPDF_PASSWORD="clave_interna_segura"
+```
+
+<Note>
+  FlaskPDF es un servicio interno y no necesita acceso a internet. Asegúrate de que corre en la misma red que el servidor Nuxt y que el puerto configurado no está bloqueado por el firewall del host.
+</Note>
+
+---
+
+## SFTP
+
+El servicio SFTP gestiona el almacenamiento persistente de documentos en un servidor remoto vía **SSH File Transfer Protocol** (puerto 22). Se usa para archivar los contratos firmados, documentos de los postulantes y PDFs generados fuera del servidor de aplicación, facilitando copias de seguridad y acceso multi-servidor.
+
+El cliente está implementado en `server/services/shared/sftp-client.service.ts` con las siguientes características:
+- **Conexión singleton por instancia**: reutiliza la sesión SSH mientras el proceso esté activo, con keepalive cada 10 segundos.
+- **Dos modos de autenticación** (en orden de prioridad): clave privada (`SFTP_PRIVATE_KEY_BASE64`) o contraseña (`SFTP_PASSWORD`).
+- **Resolución de rutas relativas** a partir de `SFTP_BASE_PATH`, lo que permite que el resto del código trabaje con rutas cortas.
+- **Creación automática de directorios** intermedios al subir archivos (configurable).
+
+### Variables de entorno
+
+<ParamField path="SFTP_ENV" type="string" default="dev">
+  Entorno del servicio SFTP. No altera la conexión pero puede usarse para condicionar comportamientos de logging.
+</ParamField>
+
+<ParamField path="SFTP_HOST" type="string" required>
+  Hostname o dirección IP del servidor SFTP/SSH.
+</ParamField>
+
+<ParamField path="SFTP_PORT" type="number" default="22">
+  Puerto SSH del servidor SFTP.
+</ParamField>
+
+<ParamField path="SFTP_USER" type="string" required>
+  Nombre de usuario para la sesión SSH.
+</ParamField>
+
+<ParamField path="SFTP_PASSWORD" type="string">
+  Contraseña para autenticación por contraseña. Se ignora si `SFTP_PRIVATE_KEY_BASE64` está configurada.
+</ParamField>
+
+<ParamField path="SFTP_PRIVATE_KEY_BASE64" type="string">
+  Clave privada SSH (RSA o ED25519) codificada en Base64. Método recomendado para producción. Para codificar: `base64 -w 0 ~/.ssh/id_rsa > key.b64`.
+</ParamField>
+
+<ParamField path="SFTP_PASSPHRASE" type="string">
+  Frase de paso que protege la clave privada, si aplica.
+</ParamField>
+
+<ParamField path="SFTP_BASE_PATH" type="string" default="/">
+  Directorio raíz en el servidor remoto a partir del cual se resuelven todas las rutas relativas. Ejemplo: `/var/comfaca/documentos`.
+</ParamField>
+
+<ParamField path="SFTP_READY_TIMEOUT_MS" type="number" default="20000">
+  Tiempo máximo en milisegundos para completar el handshake SSH. Auméntalo si el servidor remoto tiene alta latencia.
+</ParamField>
+
+### Autenticación: contraseña vs clave privada
+
+<CardGroup cols={2}>
+  <Card title="Contraseña (simple)" icon="key">
+    Configura solo `SFTP_PASSWORD`. Más fácil de configurar pero menos seguro. Adecuado para redes internas cerradas o entornos de desarrollo.
+
+    ```ini
+    SFTP_USER="deploy"
+    SFTP_PASSWORD="contraseña_ssh"
+    SFTP_PRIVATE_KEY_BASE64=""
+    ```
+  </Card>
+  <Card title="Clave privada (recomendado)" icon="shield-check">
+    Configura `SFTP_PRIVATE_KEY_BASE64` con la clave en Base64. Si la clave tiene passphrase, agrégala en `SFTP_PASSPHRASE`. Ideal para producción.
+
+    ```ini
+    SFTP_USER="deploy"
+    SFTP_PASSWORD=""
+    SFTP_PRIVATE_KEY_BASE64="LS0tLS1CRUdJTi..."
+    SFTP_PASSPHRASE="frase_secreta"
+    ```
+  </Card>
+</CardGroup>
+
+---
+
+## Correo SMTP
+
+El servicio de correo envía notificaciones transaccionales a los usuarios: confirmación de registro, enlace de recuperación de contraseña, alertas de cambio de estado en solicitudes y avisos al equipo interno de COMFACA.
+
+El cliente está implementado en `server/services/shared/smtp-mailer.service.ts` usando **nodemailer** con connection pooling (máximo 3 conexiones simultáneas, hasta 50 mensajes por conexión). El servicio soporta adjuntos, cuerpo HTML, texto plano alternativo, CC, BCC y headers personalizados.
+
+Está diseñado para funcionar con **Gmail** usando una App Password de 16 caracteres, pero es compatible con cualquier servidor SMTP estándar (Mailgun, SendGrid SMTP, servidores corporativos, etc.).
+
+### Variables de entorno
+
+<ParamField path="MAIL_ENV" type="string" default="dev">
+  Entorno del servicio de correo. No modifica la conexión SMTP pero puede usarse para condicionar el envío real (p.ej., redirigir todos los correos a una dirección de prueba en `dev`).
+</ParamField>
+
+<ParamField path="MAIL_HOST" type="string" default="smtp.gmail.com">
+  Servidor SMTP. Para Gmail: `smtp.gmail.com`. Para servidores corporativos: el hostname del relay SMTP.
+</ParamField>
+
+<ParamField path="MAIL_PORT" type="number" default="465">
+  Puerto SMTP. `465` para SSL/TLS directo (recomendado con Gmail); `587` para STARTTLS.
+</ParamField>
+
+<ParamField path="MAIL_SECURE" type="boolean" default="true">
+  `true` activa SSL/TLS directo en la conexión inicial (puerto 465). `false` negocia STARTTLS después de conectar (puerto 587). El servicio aplica `requireTLS: true` automáticamente cuando `MAIL_SECURE=false`.
+</ParamField>
+
+<ParamField path="MAIL_USER" type="string" required>
+  Dirección de correo o usuario SMTP. Para Gmail, la dirección completa: `notificaciones@comfaca.org`.
+</ParamField>
+
+<ParamField path="MAIL_PASSWORD" type="string" required>
+  Contraseña SMTP. Para Gmail debe ser una **App Password de 16 caracteres**, no la contraseña principal de la cuenta.
+</ParamField>
+
+<ParamField path="MAIL_FROM_NAME" type="string" default="Comfaca Créditos">
+  Nombre visible del remitente que aparece en el cliente de correo del destinatario.
+</ParamField>
+
+<ParamField path="MAIL_FROM_ADDRESS" type="string">
+  Dirección `From` de los correos. Si se omite, se usa el valor de `MAIL_USER`.
+</ParamField>
+
+<ParamField path="MAIL_REJECT_UNAUTHORIZED" type="boolean" default="true">
+  Controla la verificación del certificado TLS del servidor SMTP (`tls.rejectUnauthorized`). Siempre `true` en producción. Solo `false` para diagnóstico local cuando el servidor no tiene certificado válido.
+</ParamField>
+
+### Ejemplo de configuración Gmail
+
+```ini
+MAIL_ENV=pro
+MAIL_HOST="smtp.gmail.com"
+MAIL_PORT=465
+MAIL_SECURE=true
+MAIL_USER="notificaciones@comfaca.org"
+MAIL_PASSWORD="abcd efgh ijkl mnop"   # App Password de 16 chars (sin espacios en .env)
+MAIL_FROM_NAME="Comfaca Créditos"
+MAIL_FROM_ADDRESS="notificaciones@comfaca.org"
+MAIL_REJECT_UNAUTHORIZED=true
+```
+
+<Tip>
+  **Cómo generar una App Password de Gmail**
+
+  Las cuentas Gmail con verificación en dos pasos no permiten usar la contraseña principal en SMTP. Debes generar una App Password específica para Comfaca Créditos:
+
+  1. Activa la **verificación en dos pasos** en la cuenta Google que enviará los correos.
+  2. Ve a [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+  3. En el campo de nombre escribe `Comfaca Créditos` y haz clic en **Crear**.
+  4. Copia la clave de **16 caracteres** generada (sin espacios) y pégala en `MAIL_PASSWORD`.
+
+  Esta clave es independiente de la contraseña principal y puede revocarse individualmente desde la misma pantalla si se compromete.
+</Tip>

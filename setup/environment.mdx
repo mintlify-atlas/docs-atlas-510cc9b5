@@ -1,0 +1,345 @@
+---
+title: "Configurar Variables de Entorno de Comfaca Créditos"
+sidebarTitle: "Variables de Entorno"
+description: "Referencia completa de todas las variables de entorno necesarias para ejecutar Comfaca Créditos en Línea en desarrollo y producción."
+---
+
+Esta página documenta todas las variables de entorno requeridas por la aplicación, tomadas directamente del archivo `.env.template` incluido en el repositorio. Copia ese archivo como `.env` en la raíz del proyecto y completa cada valor antes de ejecutar el servidor.
+
+```bash
+cp .env.template .env
+```
+
+## Archivo `.env` de referencia
+
+```ini
+# Prisma no carga este archivo automáticamente.
+# Agrega `import "dotenv/config"` en prisma.config.ts o usa la CLI de Prisma.
+
+STAGE=dev
+NUXT_PORT=4000
+NUXT_HOST="localhost"
+
+DATABASE_URL="mysql://"
+NODE_ENV= #'development', 'test', 'production'
+NUXT_SESSION_PASSWORD=
+NITRO_PRESET = 'node'
+
+API_SISU_ENV=pro
+API_SISU_URL_PRO="http://"
+API_SISU_URL_DEV="http://"
+API_SISU_CLIENT_ID=""
+API_SISU_PASSWORD=""
+API_SISU_TYPE_AUTH="Basic"
+API_SISU_BASIC_USER=""
+API_SISU_BASIC_PASSWORD=""
+
+API_FIRMA_ENV=dev
+API_FIRMA_URL_PRO="https://firmaplus.co/Risk/api"
+API_FIRMA_URL_DEV="https://firmaplus.co/FirmaPlusPruebas/api"
+API_FIRMA_TYPE_AUTH="Basic"
+API_FIRMA_BASIC_USER=""
+API_FIRMA_BASIC_PASSWORD=""
+API_FIRMA_CLIENT_ID=
+API_FIRMA_PASSWORD=
+
+API_FLASKPDF_URL="http://"
+API_FLASKPDF_USER=""
+API_FLASKPDF_PASSWORD=""
+
+# Mail (SMTP) — Gmail: usar App Password de 16 caracteres
+MAIL_ENV=dev
+MAIL_HOST="smtp.gmail.com"
+MAIL_PORT=465
+MAIL_SECURE=true
+MAIL_USER=""
+MAIL_PASSWORD=""
+MAIL_FROM_NAME="Comfaca Créditos"
+MAIL_FROM_ADDRESS=""
+# NUNCA poner en "false" en producción. Solo para diagnóstico local.
+MAIL_REJECT_UNAUTHORIZED=true
+
+# SFTP — transferencia de archivos sobre SSH
+SFTP_ENV=dev
+SFTP_HOST=""
+SFTP_PORT=22
+SFTP_USER=""
+SFTP_PASSWORD=""
+# Alternativa: clave privada en base64 (recomendado sobre password)
+SFTP_PRIVATE_KEY_BASE64=""
+SFTP_PASSPHRASE=""
+SFTP_BASE_PATH="/"
+SFTP_READY_TIMEOUT_MS=20000
+
+NUXT_BACKEND_BASE_PORT=5001
+NUXT_BACKEND_BASE_URL="http://localhost"
+
+NUXT_JWT_SECRET=
+STORAGE_DOCUMENTS_PATH=""
+STORAGE_LOGS_PATH=""
+STORAGE_UPLOADS_PATH=""
+```
+
+---
+
+## General
+
+Variables que controlan el comportamiento global de la aplicación Nuxt.
+
+<ParamField path="STAGE" type="string" required>
+  Entorno de despliegue lógico. Valores habituales: `dev`, `staging`, `pro`. Distinto de `NODE_ENV`; lo usan algunos servicios internos para seleccionar configuración.
+</ParamField>
+
+<ParamField path="NODE_ENV" type="string" required>
+  Entorno de Node.js. Valores válidos: `development`, `test`, `production`. Controla optimizaciones de Vite/Nitro y la generación de sourcemaps.
+</ParamField>
+
+<ParamField path="NUXT_PORT" type="number" default="3000">
+  Puerto en el que escucha el servidor de desarrollo (`devServer.port` en `nuxt.config.ts`). Ejemplo: `4000`.
+</ParamField>
+
+<ParamField path="NUXT_HOST" type="string" default="localhost">
+  Host de enlace del servidor de desarrollo. Usa `0.0.0.0` para exponer en red local.
+</ParamField>
+
+<ParamField path="NUXT_SESSION_PASSWORD" type="string" required>
+  Clave de cifrado para las sesiones gestionadas por `nuxt-auth-utils`. La sesión expira a las 8 horas por defecto (`maxAge: 60 * 60 * 8`).
+</ParamField>
+
+<ParamField path="NUXT_JWT_SECRET" type="string" required>
+  Secreto para firmar y verificar JSON Web Tokens emitidos por la API del servidor.
+</ParamField>
+
+<Warning>
+  `NUXT_SESSION_PASSWORD` y `NUXT_JWT_SECRET` deben ser cadenas aleatorias largas y únicas en producción (mínimo 32 caracteres). Nunca reutilices el mismo valor en distintos entornos ni lo incluyas en control de versiones.
+</Warning>
+
+---
+
+## Base de Datos
+
+<ParamField path="DATABASE_URL" type="string" required>
+  Cadena de conexión MySQL/MariaDB en formato `mysql://usuario:contraseña@host:puerto/nombre_db`. Utilizada por Prisma cuando `DATABASE_ENV` no está definido o apunta a `dev`.
+</ParamField>
+
+<ParamField path="DATABASE_ENV" type="string" default="dev">
+  Selector de URL activa para Prisma. Cuando vale `pro`, `prisma.config.ts` usa `DATABASE_URL_PRO`; en cualquier otro valor usa `DATABASE_URL_DEV` (o `DATABASE_URL` como fallback).
+</ParamField>
+
+---
+
+## API SISU
+
+Variables para la integración con SISUWEB, el sistema de validación de afiliados de COMFACA.
+
+<ParamField path="API_SISU_ENV" type="string" default="pro">
+  Selector de URL activa. `pro` → `API_SISU_URL_PRO`; cualquier otro valor → `API_SISU_URL_DEV`.
+</ParamField>
+
+<ParamField path="API_SISU_URL_PRO" type="string" required>
+  URL base del endpoint de producción de SISUWEB. Ejemplo: `http://192.168.1.10:8080/api`.
+</ParamField>
+
+<ParamField path="API_SISU_URL_DEV" type="string" required>
+  URL base del endpoint de desarrollo/pruebas de SISUWEB.
+</ParamField>
+
+<ParamField path="API_SISU_CLIENT_ID" type="string">
+  Identificador de cliente OAuth2 para autenticación Bearer. Solo requerido cuando `API_SISU_TYPE_AUTH=Bearer`.
+</ParamField>
+
+<ParamField path="API_SISU_PASSWORD" type="string">
+  Contraseña OAuth2 para el flujo de obtención de token Bearer. Solo requerida cuando `API_SISU_TYPE_AUTH=Bearer`.
+</ParamField>
+
+<ParamField path="API_SISU_TYPE_AUTH" type="string" default="Basic">
+  Modo de autenticación. Valores soportados: `Basic` (encabezado `Authorization: Basic <base64>`) o `Bearer` (token obtenido vía `/token`).
+</ParamField>
+
+<ParamField path="API_SISU_BASIC_USER" type="string">
+  Usuario para autenticación Basic HTTP. Requerido cuando `API_SISU_TYPE_AUTH=Basic`.
+</ParamField>
+
+<ParamField path="API_SISU_BASIC_PASSWORD" type="string">
+  Contraseña para autenticación Basic HTTP. Requerida cuando `API_SISU_TYPE_AUTH=Basic`.
+</ParamField>
+
+---
+
+## API FirmaPlus
+
+Variables para la integración con FirmaPlus, la plataforma de firma digital de documentos contractuales.
+
+<ParamField path="API_FIRMA_ENV" type="string" default="dev">
+  Selector de entorno. `pro` → `API_FIRMA_URL_PRO`; cualquier otro valor → `API_FIRMA_URL_DEV`. En modo `dev` el servicio responde con respuestas mock sin llamar al servidor real.
+</ParamField>
+
+<ParamField path="API_FIRMA_URL_PRO" type="string" default="https://firmaplus.co/Risk/api">
+  URL base de producción de FirmaPlus.
+</ParamField>
+
+<ParamField path="API_FIRMA_URL_DEV" type="string" default="https://firmaplus.co/FirmaPlusPruebas/api">
+  URL base del sandbox de FirmaPlus para pruebas.
+</ParamField>
+
+<ParamField path="API_FIRMA_TYPE_AUTH" type="string" default="Basic">
+  Modo de autenticación con FirmaPlus. Actualmente soportado: `Basic`.
+</ParamField>
+
+<ParamField path="API_FIRMA_BASIC_USER" type="string" required>
+  Usuario para autenticación Basic con FirmaPlus.
+</ParamField>
+
+<ParamField path="API_FIRMA_BASIC_PASSWORD" type="string" required>
+  Contraseña para autenticación Basic con FirmaPlus.
+</ParamField>
+
+<ParamField path="API_FIRMA_CLIENT_ID" type="string">
+  Client ID OAuth2 de FirmaPlus (reservado para flujo Bearer, si se habilita en el futuro).
+</ParamField>
+
+<ParamField path="API_FIRMA_PASSWORD" type="string">
+  Contraseña OAuth2 de FirmaPlus (reservado para flujo Bearer).
+</ParamField>
+
+---
+
+## API FlaskPDF
+
+Variables para el microservicio Python de generación de PDFs contractuales.
+
+<ParamField path="API_FLASKPDF_URL" type="string" required>
+  URL base del microservicio FlaskPDF. Ejemplo: `http://localhost:5000`. Toda llamada se realiza contra el endpoint `POST /creditos/generate-pdf`.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_USER" type="string" required>
+  Usuario para autenticación Basic HTTP con FlaskPDF.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_PASSWORD" type="string" required>
+  Contraseña para autenticación Basic HTTP con FlaskPDF.
+</ParamField>
+
+---
+
+## Correo (SMTP)
+
+Variables para el servicio de correo electrónico transaccional (notificaciones de registro, recuperación de contraseña, alertas de solicitud).
+
+<ParamField path="MAIL_ENV" type="string" default="dev">
+  Entorno del servicio de correo. En `dev` se puede redirigir a cuentas de prueba.
+</ParamField>
+
+<ParamField path="MAIL_HOST" type="string" default="smtp.gmail.com">
+  Servidor SMTP. Para Gmail usar `smtp.gmail.com`.
+</ParamField>
+
+<ParamField path="MAIL_PORT" type="number" default="465">
+  Puerto SMTP. `465` para SSL directo; `587` para STARTTLS.
+</ParamField>
+
+<ParamField path="MAIL_SECURE" type="boolean" default="true">
+  `true` activa SSL/TLS directo (puerto 465). `false` usa STARTTLS (puerto 587), que se negocia después de la conexión inicial.
+</ParamField>
+
+<ParamField path="MAIL_USER" type="string" required>
+  Dirección de correo o usuario SMTP. Para Gmail, la dirección completa: `notificaciones@tudominio.com`.
+</ParamField>
+
+<ParamField path="MAIL_PASSWORD" type="string" required>
+  Contraseña SMTP. Para Gmail, una App Password de 16 caracteres (ver consejo abajo).
+</ParamField>
+
+<ParamField path="MAIL_FROM_NAME" type="string" default="Comfaca Créditos">
+  Nombre visible del remitente en los correos enviados.
+</ParamField>
+
+<ParamField path="MAIL_FROM_ADDRESS" type="string">
+  Dirección `From` de los correos. Si se omite, se usa el valor de `MAIL_USER`.
+</ParamField>
+
+<ParamField path="MAIL_REJECT_UNAUTHORIZED" type="boolean" default="true">
+  Controla la verificación del certificado TLS del servidor SMTP (`tls.rejectUnauthorized` en nodemailer). En producción siempre debe ser `true`.
+</ParamField>
+
+<Warning>
+  Nunca establezcas `MAIL_REJECT_UNAUTHORIZED=false` en producción. Desactivar la verificación TLS expone las credenciales SMTP a ataques de intermediario. Usa este valor únicamente para diagnóstico en entornos locales sin certificado válido.
+</Warning>
+
+<Tip>
+  **Gmail — App Password de 16 caracteres**
+
+  Para usar Gmail como servidor SMTP sin desactivar la seguridad de la cuenta:
+  1. Activa la **verificación en dos pasos** en tu cuenta Google.
+  2. Ve a [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+  3. Crea una nueva App Password con nombre `Comfaca Créditos`.
+  4. Copia la clave de 16 caracteres generada y pégala en `MAIL_PASSWORD`.
+
+  Esta clave es independiente de la contraseña principal de la cuenta y puede revocarse en cualquier momento.
+</Tip>
+
+---
+
+## SFTP
+
+Variables para la transferencia segura de documentos a un servidor remoto vía SSH File Transfer Protocol.
+
+<ParamField path="SFTP_ENV" type="string" default="dev">
+  Entorno del servicio SFTP. No cambia la URL pero puede condicionar validaciones internas.
+</ParamField>
+
+<ParamField path="SFTP_HOST" type="string" required>
+  Hostname o IP del servidor SFTP.
+</ParamField>
+
+<ParamField path="SFTP_PORT" type="number" default="22">
+  Puerto SSH del servidor SFTP.
+</ParamField>
+
+<ParamField path="SFTP_USER" type="string" required>
+  Nombre de usuario para la sesión SSH.
+</ParamField>
+
+<ParamField path="SFTP_PASSWORD" type="string">
+  Contraseña para autenticación por contraseña. Se usa como fallback si `SFTP_PRIVATE_KEY_BASE64` no está configurada.
+</ParamField>
+
+<ParamField path="SFTP_PRIVATE_KEY_BASE64" type="string">
+  Contenido de la clave privada RSA o ED25519 codificado en Base64. Método de autenticación preferido sobre contraseña. Para convertir una clave: `base64 -w 0 ~/.ssh/id_rsa`.
+</ParamField>
+
+<ParamField path="SFTP_PASSPHRASE" type="string">
+  Frase de paso de la clave privada, si la tiene.
+</ParamField>
+
+<ParamField path="SFTP_BASE_PATH" type="string" default="/">
+  Directorio base en el servidor remoto. Todas las rutas relativas pasadas a los métodos del servicio se resuelven desde aquí.
+</ParamField>
+
+<ParamField path="SFTP_READY_TIMEOUT_MS" type="number" default="20000">
+  Tiempo máximo en milisegundos para completar el handshake SSH inicial y las operaciones de transferencia.
+</ParamField>
+
+---
+
+## Storage y Backend
+
+<ParamField path="STORAGE_DOCUMENTS_PATH" type="string">
+  Ruta local (absoluta o relativa al proyecto) donde se almacenan los documentos generados. Si se omite, se usa el directorio `storage/` en la raíz del proyecto.
+</ParamField>
+
+<ParamField path="STORAGE_LOGS_PATH" type="string">
+  Ruta local para los archivos de log de la aplicación. Valor por defecto: `storage/`.
+</ParamField>
+
+<ParamField path="STORAGE_UPLOADS_PATH" type="string">
+  Ruta local para archivos subidos por los usuarios. Valor por defecto: `storage/`.
+</ParamField>
+
+<ParamField path="NUXT_BACKEND_BASE_PORT" type="number" default="5001">
+  Puerto del backend auxiliar (microservicio o proceso separado). Se combina con `NUXT_BACKEND_BASE_URL` para construir la URL completa: `http://localhost:5001`.
+</ParamField>
+
+<ParamField path="NUXT_BACKEND_BASE_URL" type="string" default="http://localhost">
+  URL base del backend auxiliar sin puerto final. El sistema la concatena con `NUXT_BACKEND_BASE_PORT` en `runtimeConfig.backendBaseUrl`.
+</ParamField>

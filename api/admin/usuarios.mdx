@@ -1,0 +1,382 @@
+---
+title: "API Admin de Gestión de Usuarios — Comfaca Créditos"
+sidebarTitle: "Usuarios Admin"
+description: "Administra usuarios del sistema: listar, obtener detalle, crear y actualizar cuentas con los endpoints /api/admin/users."
+---
+
+El módulo de gestión de usuarios permite a los administradores de Comfaca Créditos en Línea mantener el directorio completo de cuentas del sistema. Desde estos endpoints es posible consultar el listado de usuarios con sus roles y estados, acceder al perfil detallado de cualquier cuenta, crear nuevos usuarios directamente desde el panel administrativo y aplicar cambios como modificación de roles, activación/suspensión de cuentas y actualización de datos personales. El sistema utiliza el `username` como identificador único en la mayoría de los flujos internos.
+
+<Warning>
+  Todos los endpoints bajo `/api/admin/users` requieren una sesión activa con **rol administrador**. Los intentos de acceso sin privilegios recibirán `401 Unauthorized` o `403 Forbidden`.
+</Warning>
+
+---
+
+## GET /api/admin/users
+
+Lista todos los usuarios del sistema con soporte de filtros por rol, estado y búsqueda de texto libre. Además de la lista, la respuesta incluye conteos por rol y por estado para alimentar los widgets del panel.
+
+### Query Parameters
+
+<ParamField query="limit" type="number" default="10">
+  Número máximo de usuarios a devolver. Entero positivo.
+</ParamField>
+
+<ParamField query="offset" type="number" default="0">
+  Desplazamiento para la paginación. Entero no negativo.
+</ParamField>
+
+<ParamField query="rol" type="string">
+  Filtra usuarios que tengan este rol en su array `roles`. Ejemplos: `admin`, `user_trabajador`, `asesor`.
+</ParamField>
+
+<ParamField query="estado" type="string">
+  Filtra por estado de la cuenta. Valores reconocidos:
+  - `active` — usuario activo (`is_active: true` y `disabled: false`)
+  - `inactive` — usuario inactivo (`is_active: false`)
+  - `suspended` — usuario suspendido (`disabled: true`)
+</ParamField>
+
+<ParamField query="busqueda" type="string">
+  Búsqueda de texto libre sobre `full_name`, `email` y `username`.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Estructura de la respuesta">
+    <ResponseField name="usuarios" type="array">
+      Lista de usuarios transformados al formato del panel.
+
+      <Expandable title="Campos de cada usuario">
+        <ResponseField name="id" type="number">ID numérico del usuario.</ResponseField>
+        <ResponseField name="username" type="string">Nombre de usuario único.</ResponseField>
+        <ResponseField name="email" type="string">Correo electrónico.</ResponseField>
+        <ResponseField name="nombres" type="string">Nombres del usuario.</ResponseField>
+        <ResponseField name="apellidos" type="string">Apellidos del usuario.</ResponseField>
+        <ResponseField name="full_name" type="string">Nombre completo concatenado.</ResponseField>
+        <ResponseField name="numero_documento" type="string">Número de documento de identidad.</ResponseField>
+        <ResponseField name="rol" type="string">Rol principal (primer elemento del array `roles`).</ResponseField>
+        <ResponseField name="roles" type="array">Array completo de roles asignados al usuario.</ResponseField>
+        <ResponseField name="estado" type="string">Estado calculado: `active`, `inactive` o `suspended`.</ResponseField>
+        <ResponseField name="fecha_creacion" type="string">Fecha de creación del registro.</ResponseField>
+        <ResponseField name="telefono" type="string">Teléfono de contacto.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="total" type="number">Total de usuarios en el sistema (antes del filtrado local).</ResponseField>
+    <ResponseField name="conteo_roles" type="object">
+      Objeto con el conteo de usuarios por cada rol. Ejemplo: `{ "admin": 3, "user_trabajador": 120, "asesor": 8 }`.
+    </ResponseField>
+    <ResponseField name="conteo_estados" type="object">
+      <Expandable title="Campos de conteo">
+        <ResponseField name="active" type="number">Usuarios activos.</ResponseField>
+        <ResponseField name="inactive" type="number">Usuarios inactivos.</ResponseField>
+        <ResponseField name="suspended" type="number">Usuarios suspendidos.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash
+curl -X GET "https://app.comfaca.com/api/admin/users?rol=user_trabajador&estado=active&limit=20" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+---
+
+## GET /api/admin/users/:id
+
+Obtiene el perfil completo de un usuario específico por su ID numérico.
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  ID numérico del usuario. Se valida que sea un entero válido antes de ejecutar la consulta.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  Objeto `Usuario` con todos los campos del perfil. Ver estructura completa en la sección de tipos al final de esta página.
+</ResponseField>
+
+```bash
+curl -X GET "https://app.comfaca.com/api/admin/users/7" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+```json
+{
+  "success": true,
+  "message": null,
+  "data": {
+    "id": "7",
+    "username": "carlos.perez",
+    "nombres": "Carlos Andrés",
+    "apellidos": "Pérez Gómez",
+    "email": "carlos.perez@empresa.com",
+    "tipo_documento": "CC",
+    "numero_documento": "10245678",
+    "rol": "user_trabajador",
+    "estado": "active",
+    "ultimo_acceso": "2024-11-14T08:30:00.000Z",
+    "fecha_creacion": "2023-06-01T10:00:00.000Z",
+    "telefono": "3001234567"
+  },
+  "timestamp": "2024-11-15T17:00:00.000Z"
+}
+```
+
+---
+
+## POST /api/admin/users/create
+
+Crea una nueva cuenta de usuario desde el panel administrativo. A diferencia del registro público, este endpoint permite asignar roles específicos y configurar el estado de la cuenta desde el momento de la creación.
+
+### Body
+
+<ParamField body="username" type="string" required>
+  Nombre de usuario único en el sistema (máx. 255 caracteres). Se usa como identificador en todas las solicitudes vinculadas al usuario.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Correo electrónico válido del usuario (máx. 255 caracteres). Debe ser único en el sistema.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Contraseña inicial de la cuenta. Mínimo 8 caracteres. El usuario puede cambiarla posteriormente.
+</ParamField>
+
+<ParamField body="nombre" type="string" required>
+  Nombre(s) del usuario (máx. 100 caracteres).
+</ParamField>
+
+<ParamField body="apellido" type="string" required>
+  Apellido(s) del usuario (máx. 100 caracteres).
+</ParamField>
+
+<ParamField body="roles" type="array">
+  Array de strings con los roles a asignar. Roles disponibles en el sistema: `admin`, `user_trabajador`, `asesor`. Si se omite, se asigna el rol por defecto según la configuración del servicio.
+</ParamField>
+
+<ParamField body="disabled" type="boolean">
+  Si es `true`, la cuenta se crea suspendida. Por defecto `false` (cuenta activa).
+</ParamField>
+
+<ParamField body="tipo_documento" type="string">
+  Tipo de documento de identidad (máx. 20 caracteres). Ejemplo: `CC`, `CE`, `TI`, `Pasaporte`.
+</ParamField>
+
+<ParamField body="numero_documento" type="string">
+  Número de documento de identidad (máx. 20 caracteres).
+</ParamField>
+
+<ParamField body="telefono" type="string">
+  Teléfono de contacto del usuario (máx. 20 caracteres).
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Campos del usuario creado">
+    <ResponseField name="id" type="number">ID asignado al nuevo usuario.</ResponseField>
+    <ResponseField name="username" type="string">Username de la cuenta creada.</ResponseField>
+    <ResponseField name="email" type="string">Correo electrónico registrado.</ResponseField>
+    <ResponseField name="full_name" type="string">Nombre completo generado a partir de `nombre` y `apellido`.</ResponseField>
+    <ResponseField name="roles" type="array">Array de roles asignados.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash
+curl -X POST "https://app.comfaca.com/api/admin/users/create" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: nuxt-session=<token>" \
+  -d '{
+    "username": "maria.torres",
+    "email": "maria.torres@hospital.com",
+    "password": "Segura#2024",
+    "nombre": "María Lucía",
+    "apellido": "Torres Vargas",
+    "roles": ["user_trabajador"],
+    "disabled": false,
+    "tipo_documento": "CC",
+    "numero_documento": "52345678",
+    "telefono": "3109876543"
+  }'
+```
+
+```json
+{
+  "success": true,
+  "message": "Usuario creado exitosamente",
+  "data": {
+    "id": 145,
+    "username": "maria.torres",
+    "email": "maria.torres@hospital.com",
+    "full_name": "María Lucía Torres Vargas",
+    "roles": ["user_trabajador"]
+  },
+  "timestamp": "2024-11-15T17:20:00.000Z"
+}
+```
+
+---
+
+## PUT /api/admin/users/:id
+
+Actualiza los datos de un usuario existente. Todos los campos son opcionales. Permite cambiar el rol, suspender/activar la cuenta, actualizar datos personales o restablecer la contraseña.
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  ID numérico del usuario a actualizar.
+</ParamField>
+
+### Body
+
+<ParamField body="username" type="string">
+  Nuevo username (máx. 255 caracteres).
+</ParamField>
+
+<ParamField body="email" type="string">
+  Nuevo correo electrónico (máx. 255 caracteres).
+</ParamField>
+
+<ParamField body="password" type="string">
+  Nueva contraseña. Mínimo 8 caracteres. Solo enviar si se desea restablecer la contraseña.
+</ParamField>
+
+<ParamField body="nombre" type="string">
+  Nombres actualizados (máx. 100 caracteres).
+</ParamField>
+
+<ParamField body="apellido" type="string">
+  Apellidos actualizados (máx. 100 caracteres).
+</ParamField>
+
+<ParamField body="roles" type="array">
+  Array de roles a asignar. Reemplaza completamente los roles actuales del usuario.
+</ParamField>
+
+<ParamField body="disabled" type="boolean">
+  `true` para suspender la cuenta, `false` para reactivarla.
+</ParamField>
+
+<ParamField body="tipo_documento" type="string">
+  Tipo de documento (máx. 20 caracteres).
+</ParamField>
+
+<ParamField body="numero_documento" type="string">
+  Número de documento (máx. 20 caracteres).
+</ParamField>
+
+<ParamField body="telefono" type="string">
+  Teléfono de contacto (máx. 20 caracteres).
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Campos del usuario actualizado">
+    <ResponseField name="id" type="number">ID del usuario.</ResponseField>
+    <ResponseField name="username" type="string">Username actualizado.</ResponseField>
+    <ResponseField name="email" type="string">Correo electrónico actualizado.</ResponseField>
+    <ResponseField name="full_name" type="string">Nombre completo actualizado.</ResponseField>
+    <ResponseField name="roles" type="array">Roles vigentes tras la actualización.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash
+# Suspender una cuenta y cambiar su rol
+curl -X PUT "https://app.comfaca.com/api/admin/users/145" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: nuxt-session=<token>" \
+  -d '{
+    "disabled": true,
+    "roles": ["asesor"]
+  }'
+```
+
+---
+
+## Endpoints de Autoservicio de Usuario
+
+Los usuarios autenticados (cualquier rol) también pueden gestionar su propio perfil a través de los siguientes endpoints. Estos **no requieren rol administrador**:
+
+<CardGroup cols={3}>
+  <Card title="GET /api/user/perfil" icon="user">
+    Obtiene el perfil del usuario actualmente autenticado. Devuelve los datos personales, tipo de documento y configuración de la cuenta.
+  </Card>
+  <Card title="PUT /api/user/perfil" icon="pen-to-square">
+    Actualiza los datos del perfil propio: nombres, apellidos, teléfono, dirección, ciudad, barrio y tipo de vivienda.
+  </Card>
+  <Card title="PUT /api/user/password-change" icon="lock">
+    Permite al usuario cambiar su propia contraseña proporcionando la contraseña actual y la nueva. Requiere confirmación de la nueva contraseña.
+  </Card>
+</CardGroup>
+
+<Note>
+  Los endpoints de autoservicio validan que el usuario solo pueda modificar su propio perfil. Un administrador que desee cambiar datos de otro usuario debe usar `PUT /api/admin/users/:id`.
+</Note>
+
+---
+
+## Tipo `Usuario`
+
+Estructura TypeScript completa del objeto usuario en el contexto administrativo:
+
+```typescript
+interface Usuario {
+  id: string
+  username: string
+  nombres: string
+  apellidos: string
+  email: string
+  tipo_documento: string
+  numero_documento: string
+  rol: string
+  estado: string           // "active" | "inactive" | "suspended"
+  ultimo_acceso: string
+  fecha_creacion: string
+  telefono?: string
+  codigo_categoria?: string
+  empresa_nit?: string
+  empresa_razon_social?: string
+  direccion?: string
+  ciudad?: string
+  barrio?: string
+  tipo_vivienda?: string
+  personas_a_cargo?: number
+
+  // Alias para compatibilidad con useShowUser
+  nombre?: string
+  apellido?: string
+  tipo_identificacion?: string
+}
+```
+
+## Tipo `CreateUserForm`
+
+Estructura del formulario de creación/edición de usuario:
+
+```typescript
+interface CreateUserForm {
+  // Credenciales
+  username: string
+  email: string
+  password: string
+  confirmPassword: string
+  roles: string[]
+  disabled: boolean
+
+  // Datos personales
+  nombre: string
+  apellido: string
+  tipo_documento: string
+  numero_documento: string
+  phone: string
+}
+
+// EditUserForm es un alias de CreateUserForm
+type EditUserForm = CreateUserForm;
+```

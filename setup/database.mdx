@@ -1,0 +1,185 @@
+---
+title: "Configurar Base de Datos MariaDB para Comfaca Créditos"
+sidebarTitle: "Base de Datos"
+description: "Configura MariaDB o MySQL, ejecuta migraciones Prisma y carga los datos semilla para Comfaca Créditos en Línea."
+---
+
+Comfaca Créditos en Línea usa **Prisma ORM** como capa de acceso a datos sobre una base de datos **MariaDB** o **MySQL**. El cliente Prisma se genera en `prisma/generated/prisma` y las migraciones viven en `prisma/migrations/`. Esta página explica cómo preparar la base de datos desde cero hasta tener datos de prueba listos.
+
+---
+
+## Requisitos
+
+| Motor      | Versión mínima |
+|------------|----------------|
+| MariaDB    | 10.6           |
+| MySQL      | 8.0            |
+
+La variable de entorno `DATABASE_URL` debe contener la cadena de conexión en formato MySQL:
+
+```
+DATABASE_URL="mysql://usuario:contraseña@host:3306/nombre_base_datos"
+```
+
+Para separar entornos de desarrollo y producción puedes definir `DATABASE_URL_DEV` y `DATABASE_URL_PRO` junto con `DATABASE_ENV`:
+
+```ini
+DATABASE_ENV=dev
+DATABASE_URL_DEV="mysql://dev_user:dev_pass@localhost:3306/comfaca_dev"
+DATABASE_URL_PRO="mysql://prod_user:prod_pass@db.interno:3306/comfaca_pro"
+```
+
+---
+
+## Configuración de Prisma
+
+### `prisma.config.ts`
+
+El archivo de configuración carga las variables de entorno con `dotenv` y selecciona dinámicamente la URL según `DATABASE_ENV`:
+
+```ts
+import { defineConfig } from "prisma/config";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: {
+    path: "prisma/migrations",
+    seed: "tsx prisma/seed-database.ts"
+  },
+  datasource: {
+    url:
+      process.env.DATABASE_ENV === "pro"
+        ? process.env.DATABASE_URL_PRO
+        : process.env.DATABASE_URL_DEV
+  }
+});
+```
+
+### `prisma/schema.prisma` — generator y datasource
+
+```prisma
+generator client {
+  provider = "prisma-client"
+  output   = "./generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+```
+
+El cliente generado se ubica en `prisma/generated/prisma`, que está configurado como alias en `nuxt.config.ts` para resolución en tiempo de compilación.
+
+---
+
+## Comandos de Base de Datos
+
+Todos los comandos están definidos en `package.json` y se ejecutan con `pnpm`:
+
+<Steps>
+
+  <Step title="Generar el cliente Prisma">
+    Compila el esquema y genera el cliente TypeScript en `prisma/generated/prisma`. Ejecuta este comando cada vez que modifiques `schema.prisma`.
+
+    ```bash
+    pnpm db:generate
+    ```
+
+    Equivalente a `prisma generate`.
+  </Step>
+
+  <Step title="Ejecutar migraciones pendientes">
+    Aplica todas las migraciones en `prisma/migrations/` que aún no se hayan ejecutado en la base de datos activa. En desarrollo, si no existen migraciones previas, crea la base desde cero.
+
+    ```bash
+    pnpm db:migrate
+    ```
+
+    Equivalente a `prisma migrate dev --schema=./prisma/schema.prisma`.
+  </Step>
+
+  <Step title="Cargar datos semilla">
+    Ejecuta el script `prisma/seed-database.ts` que llama a todos los seeders disponibles en `prisma/seeders/`.
+
+    ```bash
+    pnpm db:seed
+    ```
+
+    Equivalente a `prisma db seed` (el comando está configurado en `prisma.config.ts`).
+  </Step>
+
+  <Step title="Sincronizar esquema sin migración (solo dev)">
+    Envía el esquema directamente a la base de datos sin crear archivos de migración. Útil para prototipar cambios rápidos en desarrollo.
+
+    ```bash
+    pnpm db:push
+    ```
+
+    Equivalente a `prisma db push`.
+  </Step>
+
+  <Step title="Reset completo (solo dev)">
+    Elimina toda la base de datos, vuelve a aplicar las migraciones desde cero y ejecuta los seeders automáticamente.
+
+    ```bash
+    pnpm db:reset
+    ```
+
+    Equivalente a `prisma migrate reset --schema=./prisma/schema.prisma`.
+  </Step>
+
+</Steps>
+
+<Warning>
+  **Nunca ejecutes `pnpm db:reset` en producción.** Este comando destruye todos los datos de la base de datos sin posibilidad de recuperación. Úsalo exclusivamente en entornos de desarrollo locales.
+</Warning>
+
+---
+
+## Modelos Principales
+
+El esquema define los siguientes modelos centrales del dominio crediticio:
+
+| Modelo                    | Descripción                                                                                                                           |
+|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `users`                   | Usuarios del sistema (afiliados y empleados de COMFACA). Almacena credenciales, roles en JSON, estado de activación y verificación de email. |
+| `solicitudes_credito`     | Entidad raíz de cada solicitud de crédito. Contiene monto, plazo, tasa de interés, estado actual y referencias a todas las subentidades relacionadas. |
+| `empresas_convenio`       | Empresas con convenio activo con COMFACA. Incluye NIT, razón social, fechas de convenio y estado (`Activo`, `Inactivo`, `Suspendido`, `Vencido`). |
+| `documentos_postulantes`  | Archivos subidos por el solicitante durante el proceso (cédula, desprendibles de nómina, certificados, etc.). Registra ruta local y path en la API externa. |
+| `firmantes_solicitud`     | Lista ordenada de personas que deben firmar digitalmente el contrato de crédito vía FirmaPlus.                                        |
+| `estados_solicitud`       | Catálogo de estados posibles de una solicitud (e.g., `EN_REVISION`, `APROBADA`, `DESEMBOLSADA`). Incluye color de visualización y orden de flujo. |
+| `notifications`           | Notificaciones en aplicación para los usuarios. Soporta tipo, datos en JSON y marca de lectura.                                       |
+| `roles`                   | Roles del sistema con permisos almacenados en JSON. Cada usuario puede tener múltiples roles asignados.                               |
+| `configurations`          | Parámetros de configuración dinámica de la aplicación almacenados en base de datos (clave/valor con tipo y categoría).                |
+| `solicitud_payload`       | Datos detallados de la solicitud: información laboral, ingresos, descuentos, propiedades, deudas y referencias, versionados.          |
+| `solicitud_timeline`      | Historial cronológico de cambios de estado de cada solicitud, con usuario responsable y detalle del cambio.                           |
+| `pdfs_generados`          | Registro del PDF contractual generado por FlaskPDF para cada solicitud, con ruta de almacenamiento.                                  |
+
+---
+
+## Datos Semilla
+
+El directorio `prisma/seeders/` contiene un archivo de seeder por cada tabla del dominio. El script principal `prisma/seed-database.ts` los orquesta en el orden correcto respetando las relaciones de clave foránea.
+
+| Seeder                            | Datos que carga                                                                 |
+|-----------------------------------|---------------------------------------------------------------------------------|
+| `roles.seed.ts`                   | Roles base del sistema (Administrador, Asesor, Afiliado, etc.) con permisos.   |
+| `users.seed.ts`                   | Usuarios de prueba con credenciales conocidas para cada rol.                   |
+| `estados-solicitud.seed.ts`       | Catálogo completo de estados del flujo de una solicitud de crédito.            |
+| `tipo-documentos.seed.ts`         | Tipos de documento requeridos durante la postulación.                           |
+| `empresas-convenio.seed.ts`       | Empresas con convenio de ejemplo para pruebas de flujo completo.               |
+| `configurations.seed.ts`          | Configuraciones dinámicas iniciales de la aplicación (clave/valor).            |
+| `modules.seed.ts`                 | Módulos del menú de navegación con rutas y permisos requeridos.                |
+| `solicitudes-credito.seed.ts`     | Solicitudes de crédito de prueba en distintos estados del flujo.               |
+| `solicitud-payload.seed.ts`       | Datos financieros y laborales de las solicitudes semilla.                       |
+| `solicitud-solicitante.seed.ts`   | Información personal de los solicitantes de las solicitudes semilla.            |
+| `firmantes-solicitud.seed.ts`     | Firmantes asignados a las solicitudes de prueba.                               |
+| `documentos-postulantes.seed.ts`  | Registros de documentos adjuntos a las solicitudes semilla.                    |
+| `solicitud-timeline.seed.ts`      | Historial de estados de las solicitudes semilla.                               |
+| `notifications.seed.ts`           | Notificaciones de prueba asociadas a usuarios semilla.                         |
+| `numero-solicitudes.seed.ts`      | Secuencias de numeración para los radicados.                                   |
+
+Para cargar únicamente los seeders de CMS sin afectar datos de dominio, existe el script alternativo `prisma/seed-cms-only.ts`.

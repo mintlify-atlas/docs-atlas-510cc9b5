@@ -1,0 +1,213 @@
+---
+title: "GET /api/health — Health Check del Servidor"
+sidebarTitle: "Health Check"
+description: "Endpoint de health check para monitoreo del servidor Comfaca Créditos. Devuelve el estado del servicio, versión y conectividad a base de datos."
+---
+
+El endpoint `/api/health` es el punto de diagnóstico principal del servidor **Comfaca Créditos en Línea**. Reporta el estado operativo del sistema consultando la configuración `status_online` en la base de datos: si el valor es `"true"` (o si la configuración no puede leerse), el estado es `"ok"`; si el valor es `"false"`, el sistema reporta `"maintenance"`. No requiere autenticación y es apto para herramientas de monitoreo externas, balanceadores de carga y Docker healthchecks.
+
+---
+
+## GET /api/health
+
+### Autenticación
+
+**No requiere autenticación.** El endpoint es completamente público.
+
+### Parámetros de solicitud
+
+Ninguno.
+
+### Respuesta exitosa `200` — Sistema en línea
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-15T14:30:00.000Z",
+  "app": "Sistema de Creditos Comfaca",
+  "isOnline": true,
+  "version": "1.0.0"
+}
+```
+
+### Respuesta `200` — Sistema en mantenimiento
+
+```json
+{
+  "status": "maintenance",
+  "timestamp": "2026-03-15T02:00:00.000Z",
+  "app": "Sistema de Creditos Comfaca",
+  "isOnline": false,
+  "version": "1.0.0"
+}
+```
+
+<Expandable title="Campos de la respuesta">
+  <ResponseField name="status" type="string">
+    Estado del servicio. Valores posibles:
+    - `"ok"` — el sistema está operativo.
+    - `"maintenance"` — el sistema está en mantenimiento (la configuración `status_online` está en `"false"`).
+  </ResponseField>
+  <ResponseField name="timestamp" type="string">
+    Timestamp ISO 8601 del momento exacto en que se generó la respuesta.
+  </ResponseField>
+  <ResponseField name="app" type="string">
+    Nombre del sistema. Siempre `"Sistema de Creditos Comfaca"`.
+  </ResponseField>
+  <ResponseField name="isOnline" type="boolean">
+    `true` cuando el sistema está operativo, `false` en modo mantenimiento. Refleja el valor de la configuración `status_online` en la base de datos.
+  </ResponseField>
+  <ResponseField name="version" type="string">
+    Versión actual del sistema. Actualmente `"1.0.0"`.
+  </ResponseField>
+</Expandable>
+
+### Comportamiento ante error de base de datos
+
+Si la consulta a la configuración `status_online` falla (por ejemplo, por un error de conectividad con la base de datos), el endpoint **no lanza un error** — en cambio, asume `isOnline: true` y retorna `status: "ok"`. Esto es intencional: el health check no debe caer si la configuración no está disponible.
+
+### Ejemplo curl
+
+```bash
+curl -X GET "https://tu-dominio.com/api/health"
+```
+
+---
+
+## Uso en Producción
+
+### Integración con monitores de disponibilidad
+
+<Tip>
+  Servicios como **UptimeRobot**, **Better Uptime** o **Grafana Synthetic Monitoring** pueden configurarse para sondear `/api/health` cada 30-60 segundos y alertar cuando el código HTTP sea diferente de `200` o cuando el campo `status` no sea `"ok"`.
+</Tip>
+
+Ejemplo de configuración para **UptimeRobot**:
+
+```
+Monitor Type: HTTP(s) - Keyword
+URL: https://tu-dominio.com/api/health
+Keyword: "ok"
+Interval: 5 minutes
+Alert when: keyword not found OR status != 200
+```
+
+Para **Grafana** con plugin de blackbox exporter:
+
+```yaml
+# prometheus.yml — scrape config
+scrape_configs:
+  - job_name: "comfaca_health"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://tu-dominio.com/api/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+```
+
+### Balanceador de carga
+
+Configura el health check en tu proxy inverso (Nginx, Caddy, AWS ALB, etc.) para retirar el nodo del pool de tráfico cuando el endpoint no responda:
+
+```nginx
+# nginx.conf — upstream con health check activo
+upstream comfaca_app {
+  server app:3000;
+  keepalive 32;
+}
+
+server {
+  location /api/health {
+    proxy_pass http://comfaca_app;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 10s;
+  }
+}
+```
+
+### Docker HEALTHCHECK
+
+Añade la siguiente instrucción al `Dockerfile` para que Docker Engine supervise la salud del contenedor y lo marque como `unhealthy` si el endpoint falla tres veces consecutivas:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/api/health || exit 1
+```
+
+O usando `wget` si tu imagen base no incluye `curl`:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+```
+
+Con Docker Compose:
+
+```yaml
+services:
+  comfaca:
+    image: comfaca-creditos:latest
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+```
+
+---
+
+## Otros Endpoints de Utilidad
+
+Además del health check, la aplicación expone varios endpoints de catálogo y consulta pública que no requieren autenticación:
+
+<CardGroup cols={2}>
+  <Card title="GET /api/convenios/activo" icon="building">
+    Retorna el convenio vigente actualmente activo. Usado en la página de inicio y el formulario de solicitud público para mostrar información del convenio habilitado.
+  </Card>
+  <Card title="GET /api/lineas_credito/tipo-creditos" icon="credit-card">
+    Lista los tipos de crédito disponibles en el sistema (ej: libre inversión, vivienda, vehículo). Alimenta los selectores del formulario de solicitud.
+  </Card>
+  <Card title="GET /api/lineas_credito/parametros" icon="sliders">
+    Retorna los parámetros de las líneas de crédito activas: tasas, plazos mínimos y máximos, montos y condiciones aplicables.
+  </Card>
+  <Card title="GET /api/parametros/tipos-documento" icon="id-card">
+    Catálogo de tipos de documento de identidad aceptados (Cédula de Ciudadanía, Cédula de Extranjería, NIT, etc.).
+  </Card>
+</CardGroup>
+
+<CardGroup cols={1}>
+  <Card title="GET /api/parametros/roles" icon="users">
+    Retorna los roles de usuario disponibles en el sistema con sus permisos asociados. Útil para la gestión de usuarios desde el panel de administración.
+  </Card>
+</CardGroup>
+
+### Ejemplos curl
+
+```bash
+# Health check básico
+curl -X GET "https://tu-dominio.com/api/health"
+
+# Convenio activo (público)
+curl -X GET "https://tu-dominio.com/api/convenios/activo"
+
+# Tipos de crédito disponibles
+curl -X GET "https://tu-dominio.com/api/lineas_credito/tipo-creditos"
+
+# Parámetros de líneas de crédito
+curl -X GET "https://tu-dominio.com/api/lineas_credito/parametros"
+
+# Catálogo de tipos de documento
+curl -X GET "https://tu-dominio.com/api/parametros/tipos-documento"
+
+# Roles disponibles
+curl -X GET "https://tu-dominio.com/api/parametros/roles"
+```

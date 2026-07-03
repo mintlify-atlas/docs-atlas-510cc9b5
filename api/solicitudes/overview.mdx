@@ -1,0 +1,98 @@
+---
+title: "API de Solicitudes de Crédito en Comfaca Créditos"
+sidebarTitle: "Vista General"
+description: "Resumen de todos los endpoints de solicitudes de crédito en Comfaca Créditos: crear, consultar, documentos, PDF y estados del ciclo de vida."
+---
+
+La **API de Solicitudes de Crédito** es el núcleo funcional de Comfaca Créditos en Línea. Permite a los afiliados crear solicitudes de crédito a través de un wizard multi-paso, adjuntar documentos requeridos, generar el contrato PDF contractual y hacer seguimiento al estado de sus solicitudes a lo largo del ciclo de vida de la aprobación.
+
+Todos los endpoints de esta sección operan sobre el recurso `solicitudes_credito` almacenado en la base de datos Prisma y están organizados bajo el prefijo `/api/solicitudes`. El acceso está restringido a usuarios con sesión activa; la propiedad de cada solicitud se valida comparando `solicitud.owner_username` con el `username` de la sesión.
+
+---
+
+## Endpoints Disponibles
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/solicitudes/mis-solicitudes` | Lista todas las solicitudes del usuario autenticado con paginación. |
+| `POST` | `/api/solicitudes/guardar-solicitud` | Crea una nueva solicitud de crédito con el payload completo del wizard. |
+| `GET` | `/api/solicitudes/:id` | Obtiene el detalle completo de una solicitud por su `numero_solicitud`. |
+| `DELETE` | `/api/solicitudes/:id` | Elimina una solicitud. El propietario o un administrador pueden eliminarlo. |
+| `GET` | `/api/solicitudes/:id/documentos` | Lista los documentos activos adjuntos a una solicitud. |
+| `POST` | `/api/solicitudes/:id/documentos` | Sube un nuevo documento a una solicitud (`multipart/form-data`). |
+| `GET` | `/api/solicitudes/:id/documentos/:documentoId/descargar` | Descarga un documento específico como stream de archivo. |
+| `DELETE` | `/api/solicitudes/:id/documentos/:documentoId` | Elimina un documento de una solicitud. |
+| `POST` | `/api/solicitudes/:id/generar-pdf` | Genera el documento contractual PDF usando el servicio FlaskPDF. |
+| `GET` | `/api/solicitudes/:id/descargar-pdf` | Descarga el PDF contractual generado previamente. |
+| `GET` | `/api/solicitudes/estados-solicitud` | Lista todos los estados del ciclo de vida disponibles en el sistema. |
+| `POST` | `/api/solicitudes/numero-disponible` | Obtiene el próximo número de radicado disponible para una línea de crédito. |
+
+---
+
+## Ciclo de Vida de una Solicitud
+
+Cada solicitud atraviesa los siguientes estados en su proceso de aprobación. El campo `estado` en el objeto de solicitud siempre refleja el estado actual.
+
+1. **`POSTULADO`** — La solicitud fue creada y enviada por el afiliado. Es el estado inicial.
+2. **`DOCUMENTOS_CARGADOS`** — El afiliado ha adjuntado los documentos requeridos.
+3. **`ENVIADO_VALIDACION`** — La solicitud fue remitida al equipo de Comfaca para su revisión documental.
+4. **`PENDIENTE_FIRMADO`** — Los documentos son válidos; se aguarda la firma digital del afiliado.
+5. **`FIRMADO`** — El contrato ha sido firmado digitalmente por todas las partes.
+6. **`ENVIADO_PENDIENTE_APROBACION`** — La solicitud firmada fue enviada al comité de crédito.
+7. **`APROBADA`** — El comité aprobó el crédito; se procede al desembolso.
+8. **`RECHAZADA`** — El comité rechazó la solicitud. Se puede apelar o crear una nueva.
+9. **`DESESTIMADA`** — La solicitud fue descartada por incumplimiento de requisitos previos.
+10. **`CANCELADA`** — La solicitud fue cancelada administrativamente.
+11. **`DESISTE`** — El afiliado desistió voluntariamente de la solicitud.
+
+```
+POSTULADO → DOCUMENTOS_CARGADOS → ENVIADO_VALIDACION → PENDIENTE_FIRMADO
+    → FIRMADO → ENVIADO_PENDIENTE_APROBACION → APROBADA
+                                             ↘ RECHAZADA
+                                             ↘ DESESTIMADA
+```
+
+---
+
+## Autenticación
+
+<Note>
+  **Todos los endpoints de solicitudes requieren una sesión activa.** La sesión se establece mediante la cookie `nuxt-session` creada por [`POST /api/auth/login`](/api/auth/login). Si la cookie no está presente o expiró, los endpoints responden con `401 No hay sesión activa`.
+
+  Adicionalmente, la mayoría de operaciones sobre una solicitud validan que `solicitud.owner_username` coincida con el `username` de la sesión activa. Los usuarios con rol `administrator` pueden operar sobre solicitudes de cualquier afiliado.
+</Note>
+
+---
+
+## Explorar la API
+
+<CardGroup cols={2}>
+  <Card
+    title="Crear y Consultar Solicitudes"
+    icon="file-plus"
+    href="/api/solicitudes/crear"
+  >
+    Endpoints para crear una nueva solicitud con el wizard multi-paso, listar las solicitudes del usuario y obtener el detalle de una solicitud específica.
+  </Card>
+  <Card
+    title="Gestión de Documentos"
+    icon="paperclip"
+    href="/api/solicitudes/documentos"
+  >
+    Sube, lista, descarga y elimina los documentos adjuntos requeridos para el proceso de aprobación de una solicitud.
+  </Card>
+  <Card
+    title="Generación de PDF Contractual"
+    icon="file-pdf"
+    href="/api/solicitudes/pdf"
+  >
+    Genera el contrato PDF de la solicitud a través del servicio FlaskPDF y descárgalo directamente desde el servidor.
+  </Card>
+  <Card
+    title="Estados de Solicitud"
+    icon="list-check"
+    href="/api/solicitudes/overview#ciclo-de-vida-de-una-solicitud"
+  >
+    Consulta todos los estados disponibles del ciclo de vida con sus descripciones, colores y orden de presentación.
+  </Card>
+</CardGroup>

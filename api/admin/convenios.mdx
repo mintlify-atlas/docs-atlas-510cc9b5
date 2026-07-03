@@ -1,0 +1,340 @@
+---
+title: "API Admin de Convenios Empresariales — Comfaca Créditos"
+sidebarTitle: "Convenios Admin"
+description: "Gestiona convenios empresariales con los endpoints admin: listar, obtener por ID, crear y actualizar empresas afiliadas a COMFACA."
+---
+
+Los **convenios empresariales** son los acuerdos formales entre COMFACA y las empresas empleadoras que permiten a sus trabajadores acceder a créditos de libranza. Cada convenio vincula una empresa (identificada por su NIT) con COMFACA, habilitando el descuento por nómina como mecanismo de pago. Los endpoints administrativos permiten gestionar el ciclo de vida completo de estos convenios: creación, consulta, actualización y cambio de estado.
+
+<Warning>
+  Todos los endpoints de esta sección bajo `/api/admin/convenios` requieren una sesión activa con **rol administrador**. Las peticiones sin autenticación o con rol insuficiente recibirán un error `401` o `403`.
+</Warning>
+
+---
+
+## GET /api/admin/convenios
+
+Lista todos los convenios empresariales con soporte de paginación y filtros opcionales. Devuelve además un `conteo_estados` con el resumen de convenios por estado.
+
+### Query Parameters
+
+<ParamField query="page" type="number" default="1">
+  Número de página a consultar. Entero positivo.
+</ParamField>
+
+<ParamField query="limit" type="number" default="20">
+  Número máximo de convenios a devolver por página.
+</ParamField>
+
+<ParamField query="estado" type="string">
+  Filtra convenios por estado. Valores posibles: `Activo`, `Inactivo`, `Suspendido`, `Vencido`.
+</ParamField>
+
+<ParamField query="nit" type="string">
+  Busca convenios por el NIT exacto de la empresa.
+</ParamField>
+
+<ParamField query="busqueda" type="string">
+  Búsqueda de texto libre sobre `razon_social`, `nit` u otros campos indexados.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` cuando la consulta es exitosa.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="Estructura de la respuesta paginada">
+    <ResponseField name="empresas" type="array">
+      Array de objetos `EmpresaConvenio`.
+
+      <Expandable title="Campos de EmpresaConvenio">
+        <ResponseField name="id" type="string">ID interno del convenio.</ResponseField>
+        <ResponseField name="nit" type="string">NIT de la empresa empleadora.</ResponseField>
+        <ResponseField name="razon_social" type="string">Razón social de la empresa.</ResponseField>
+        <ResponseField name="fecha_convenio" type="string">Fecha de suscripción del convenio.</ResponseField>
+        <ResponseField name="fecha_vencimiento" type="string">Fecha de vencimiento del convenio.</ResponseField>
+        <ResponseField name="estado" type="string">Estado actual: `Activo`, `Inactivo`, `Suspendido` o `Vencido`.</ResponseField>
+        <ResponseField name="representante_documento" type="string">Número de documento del representante legal.</ResponseField>
+        <ResponseField name="representante_nombre" type="string">Nombre del representante legal.</ResponseField>
+        <ResponseField name="telefono" type="string">Teléfono de contacto de la empresa.</ResponseField>
+        <ResponseField name="correo" type="string">Correo electrónico de contacto.</ResponseField>
+        <ResponseField name="createdAt" type="string">Fecha de creación del registro en ISO 8601.</ResponseField>
+        <ResponseField name="updatedAt" type="string">Fecha de última modificación en ISO 8601.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="pagination" type="object">
+      <Expandable title="Campos de paginación">
+        <ResponseField name="page" type="number">Página actual.</ResponseField>
+        <ResponseField name="limit" type="number">Tamaño de página.</ResponseField>
+        <ResponseField name="total" type="number">Total de registros encontrados.</ResponseField>
+        <ResponseField name="total_pages" type="number">Total de páginas.</ResponseField>
+        <ResponseField name="has_next" type="boolean">Indica si hay página siguiente.</ResponseField>
+        <ResponseField name="has_prev" type="boolean">Indica si hay página anterior.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="conteo_estados" type="object">
+      Objeto con el conteo de convenios por estado. Ejemplo: `{ "Activo": 45, "Inactivo": 3, "Vencido": 2 }`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## GET /api/admin/convenios/:id
+
+Obtiene el detalle completo de un convenio empresarial por su ID interno.
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  ID numérico del convenio. Se convierte a `Number` internamente.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  Objeto `EmpresaConvenio` con todos los campos del convenio incluyendo los campos extendidos de dirección, sector económico y notas internas.
+</ResponseField>
+
+```bash
+curl -X GET "https://app.comfaca.com/api/admin/convenios/42" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+```json
+{
+  "success": true,
+  "message": null,
+  "data": {
+    "id": "42",
+    "nit": "900123456",
+    "razon_social": "Constructora Andina S.A.S.",
+    "fecha_convenio": "2023-03-01",
+    "fecha_vencimiento": "2025-03-01",
+    "estado": "Activo",
+    "representante_documento": "79456321",
+    "representante_nombre": "Jorge Enrique Mora",
+    "telefono": "6012345678",
+    "correo": "convenios@constructoraandina.com",
+    "direccion": "Cra 15 # 93-47",
+    "ciudad": "Bogotá",
+    "departamento": "Cundinamarca",
+    "sector_economico": "Construcción",
+    "numero_empleados": 250,
+    "tipo_empresa": "S.A.S.",
+    "createdAt": "2023-03-01T09:00:00.000Z",
+    "updatedAt": "2024-06-15T11:20:00.000Z"
+  },
+  "timestamp": "2024-11-15T16:00:00.000Z"
+}
+```
+
+---
+
+## POST /api/admin/convenios/create
+
+Crea un nuevo convenio empresarial en el sistema. El NIT y la razón social son obligatorios. Todos los demás campos son opcionales.
+
+### Body
+
+<ParamField body="nit" type="string" required>
+  NIT de la empresa empleadora. Debe ser único en el sistema.
+</ParamField>
+
+<ParamField body="razon_social" type="string" required>
+  Razón social completa de la empresa tal como aparece en el registro mercantil.
+</ParamField>
+
+<ParamField body="representante_documento" type="string" required>
+  Número de documento de identidad del representante legal de la empresa.
+</ParamField>
+
+<ParamField body="representante_nombre" type="string" required>
+  Nombre completo del representante legal.
+</ParamField>
+
+<ParamField body="telefono" type="string">
+  Teléfono de contacto de la empresa (máx. 20 caracteres).
+</ParamField>
+
+<ParamField body="correo" type="string">
+  Correo electrónico de contacto. Debe ser una dirección válida (máx. 255 caracteres).
+</ParamField>
+
+<ParamField body="fecha_vencimiento" type="string">
+  Fecha de vencimiento del convenio en formato ISO 8601 (`YYYY-MM-DD`).
+</ParamField>
+
+<ParamField body="estado" type="string">
+  Estado inicial del convenio. Valores permitidos: `Activo`, `Inactivo`, `Suspendido`, `Vencido`. Por defecto se asigna según la lógica del servicio.
+</ParamField>
+
+<ParamField body="direccion" type="string">
+  Dirección física de la sede principal de la empresa.
+</ParamField>
+
+<ParamField body="ciudad" type="string">
+  Ciudad donde opera la empresa (máx. 100 caracteres).
+</ParamField>
+
+<ParamField body="departamento" type="string">
+  Departamento donde opera la empresa (máx. 100 caracteres).
+</ParamField>
+
+<ParamField body="sector_economico" type="string">
+  Sector económico al que pertenece la empresa (máx. 100 caracteres). Ejemplo: `Construcción`, `Educación`, `Salud`.
+</ParamField>
+
+<ParamField body="numero_empleados" type="number">
+  Número total de empleados de la empresa. Entero no negativo.
+</ParamField>
+
+<ParamField body="tipo_empresa" type="string">
+  Tipo de sociedad empresarial (máx. 100 caracteres). Ejemplo: `S.A.S.`, `S.A.`, `Ltda.`, `E.S.P.`.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Descripción general del convenio y sus condiciones.
+</ParamField>
+
+<ParamField body="notas_internas" type="string">
+  Notas de uso exclusivo del equipo administrativo. No son visibles para el solicitante.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Campos del convenio creado">
+    <ResponseField name="id" type="string">ID asignado al nuevo convenio.</ResponseField>
+    <ResponseField name="nit" type="string">NIT de la empresa convenio.</ResponseField>
+    <ResponseField name="razon_social" type="string">Razón social registrada.</ResponseField>
+    <ResponseField name="estado" type="string">Estado inicial del convenio.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash
+curl -X POST "https://app.comfaca.com/api/admin/convenios/create" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: nuxt-session=<token>" \
+  -d '{
+    "nit": "900456789",
+    "razon_social": "Hospital Regional del Norte E.S.P.",
+    "representante_documento": "12345678",
+    "representante_nombre": "Ana María Rodríguez",
+    "telefono": "6076543210",
+    "correo": "convenios@hospitalregional.gov.co",
+    "fecha_vencimiento": "2026-12-31",
+    "estado": "Activo",
+    "ciudad": "Montería",
+    "departamento": "Córdoba",
+    "sector_economico": "Salud",
+    "numero_empleados": 850,
+    "tipo_empresa": "E.S.P.",
+    "descripcion": "Convenio de libranza para empleados del hospital.",
+    "notas_internas": "Revisado y aprobado por comité el 01/11/2024."
+  }'
+```
+
+```json
+{
+  "success": true,
+  "message": "Convenio creado exitosamente",
+  "data": {
+    "id": "58",
+    "nit": "900456789",
+    "razon_social": "Hospital Regional del Norte E.S.P.",
+    "estado": "Activo"
+  },
+  "timestamp": "2024-11-15T16:15:00.000Z"
+}
+```
+
+---
+
+## PUT /api/admin/convenios/:id
+
+Actualiza los campos de un convenio empresarial existente. Todos los campos son opcionales; solo se modifican los que se incluyan en el body.
+
+### Path Parameters
+
+<ParamField path="id" type="number" required>
+  ID numérico del convenio a actualizar.
+</ParamField>
+
+### Body
+
+Acepta los mismos campos que `POST /api/admin/convenios/create`, todos como opcionales:
+
+<ParamField body="nit" type="string">NIT de la empresa.</ParamField>
+<ParamField body="razon_social" type="string">Razón social.</ParamField>
+<ParamField body="representante_documento" type="string">Documento del representante legal.</ParamField>
+<ParamField body="representante_nombre" type="string">Nombre del representante legal.</ParamField>
+<ParamField body="telefono" type="string">Teléfono de contacto (máx. 20 caracteres).</ParamField>
+<ParamField body="correo" type="string">Correo electrónico de contacto (máx. 255 caracteres).</ParamField>
+<ParamField body="fecha_vencimiento" type="string">Fecha de vencimiento en ISO 8601.</ParamField>
+<ParamField body="estado" type="string">Nuevo estado: `Activo`, `Inactivo`, `Suspendido` o `Vencido`.</ParamField>
+<ParamField body="direccion" type="string">Dirección física actualizada.</ParamField>
+<ParamField body="ciudad" type="string">Ciudad (máx. 100 caracteres).</ParamField>
+<ParamField body="departamento" type="string">Departamento (máx. 100 caracteres).</ParamField>
+<ParamField body="sector_economico" type="string">Sector económico (máx. 100 caracteres).</ParamField>
+<ParamField body="numero_empleados" type="number">Número de empleados actualizado.</ParamField>
+<ParamField body="tipo_empresa" type="string">Tipo de empresa (máx. 100 caracteres).</ParamField>
+<ParamField body="descripcion" type="string">Descripción del convenio.</ParamField>
+<ParamField body="notas_internas" type="string">Notas internas del equipo administrativo.</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object">
+  <Expandable title="Campos del convenio actualizado">
+    <ResponseField name="id" type="string">ID del convenio.</ResponseField>
+    <ResponseField name="nit" type="string">NIT actualizado.</ResponseField>
+    <ResponseField name="razon_social" type="string">Razón social actualizada.</ResponseField>
+    <ResponseField name="estado" type="string">Estado resultante tras la actualización.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Endpoints Públicos Relacionados
+
+Además de los endpoints administrativos, existen dos endpoints **públicos** (sin autenticación) para la validación de convenios desde el flujo de solicitud de crédito:
+
+<CardGroup cols={2}>
+  <Card title="GET /api/convenios/activo" icon="building">
+    Devuelve la lista de convenios con estado `Activo`. Utilizado en el formulario de solicitud para que el trabajador seleccione su empresa empleadora. **No requiere autenticación.**
+  </Card>
+  <Card title="GET /api/convenios/:nit/:cedula/validar" icon="shield-check">
+    Valida si una cédula específica pertenece a una empresa con convenio activo para el NIT dado. Usado para verificar elegibilidad antes de iniciar la solicitud. **No requiere autenticación.**
+  </Card>
+</CardGroup>
+
+---
+
+## Tipo `EmpresaConvenio`
+
+Estructura TypeScript del objeto convenio:
+
+```typescript
+interface EmpresaConvenio {
+  id: string
+  nit: string
+  razon_social: string
+  fecha_convenio: string
+  fecha_vencimiento: string
+  estado: string               // "Activo" | "Inactivo" | "Suspendido" | "Vencido"
+  representante_documento: string
+  representante_nombre: string
+  telefono: string
+  correo: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface ConveniosResponse {
+  empresas: EmpresaConvenio[]
+  pagination: PaginationInfo
+  conteo_estados: Record<string, number>
+}
+```

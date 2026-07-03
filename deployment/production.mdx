@@ -1,0 +1,225 @@
+---
+title: "Desplegar Comfaca Créditos en Línea en Producción"
+sidebarTitle: "Producción"
+description: "Guía paso a paso para compilar y desplegar Comfaca Créditos en Línea en un servidor Node.js con Nitro en modo node-server."
+---
+
+Comfaca Créditos en Línea se compila con Nuxt 4 y se sirve mediante el preset **`node-server`** de Nitro, que genera un servidor Node.js autónomo en `.output/server/index.mjs`. El despliegue no requiere contenedores: basta con Node.js 20+, acceso a la base de datos MariaDB/MySQL y las variables de entorno correctamente configuradas.
+
+## Requisitos del Servidor
+
+Antes de iniciar el proceso de build, asegúrate de que el servidor de destino cumpla los siguientes requisitos:
+
+- **Node.js** >= 20.x
+- **pnpm** >= 10.x
+- **MariaDB** >= 10.6 o **MySQL** >= 8.0 accesible desde el servidor
+- **Acceso SFTP** al servidor de documentos (para almacenamiento de archivos adjuntos)
+- **Variables de entorno** de producción configuradas en el entorno o en un archivo `.env`
+
+## Build de Producción
+
+<Steps>
+  <Step title="Configurar las variables de entorno de producción">
+    Copia la plantilla de variables de entorno y edítala con los valores reales de producción. Presta especial atención a las variables marcadas como críticas en la sección de [Variables de Entorno de Producción](#variables-de-entorno-de-producción).
+
+    ```bash
+    cp .env.template .env
+    # Editar .env con los valores de producción
+    ```
+  </Step>
+  <Step title="Instalar dependencias">
+    Usa el flag `--frozen-lockfile` para garantizar que las versiones instaladas coincidan exactamente con el `pnpm-lock.yaml` del repositorio, evitando actualizaciones no controladas en producción.
+
+    ```bash
+    pnpm install --frozen-lockfile
+    ```
+  </Step>
+  <Step title="Generar el cliente Prisma">
+    Prisma genera el cliente tipado a partir del esquema `prisma/schema.prisma`. Este paso es obligatorio después de cualquier `install` limpio.
+
+    ```bash
+    pnpm db:generate
+    ```
+  </Step>
+  <Step title="Ejecutar las migraciones de base de datos">
+    Aplica todas las migraciones pendientes sobre la base de datos de producción. Asegúrate de que `DATABASE_URL` apunte a la base de datos correcta antes de ejecutar este comando.
+
+    ```bash
+    pnpm db:migrate
+    ```
+  </Step>
+  <Step title="Compilar la aplicación">
+    Nuxt invoca Vite para el bundle del cliente y Rollup vía Nitro para el servidor. El resultado queda en `.output/`:
+
+    ```bash
+    pnpm build
+    ```
+
+    Tras el build, la carpeta `.output/` contiene:
+
+    ```
+    .output/
+    ├── server/
+    │   └── index.mjs      # Punto de entrada del servidor Nitro
+    ├── public/             # Archivos estáticos prerenderizados
+    └── nitro.json          # Metadatos del build de Nitro
+    ```
+  </Step>
+  <Step title="Iniciar el servidor">
+    Lanza el servidor Node.js directamente desde el artefacto generado. Nitro gestiona las rutas de API y las páginas SSR de forma autónoma.
+
+    ```bash
+    node .output/server/index.mjs
+    ```
+
+    El servidor escucha en el puerto definido por `NUXT_PORT` (por defecto `3000`). Puedes cambiar el host con `NUXT_HOST`.
+  </Step>
+</Steps>
+
+## Variables de Entorno de Producción
+
+<Warning>
+  Las siguientes variables son críticas para la seguridad y el correcto funcionamiento en producción. Una configuración incorrecta puede exponer datos de usuarios o inutilizar la autenticación.
+
+  ```bash
+  # Modo de ejecución — nunca omitir en producción
+  NODE_ENV=production
+  NITRO_PRESET=node
+
+  # Sesión HTTP — mínimo 32 caracteres aleatorios (usa: openssl rand -hex 32)
+  NUXT_SESSION_PASSWORD=<cadena-aleatoria-32-chars>
+
+  # Secreto JWT para tokens de autenticación — debe ser fuerte y único
+  NUXT_JWT_SECRET=<secreto-jwt-fuerte>
+
+  # Base de datos de producción
+  DATABASE_URL_PRO=mysql://user:password@host:3306/comfaca_creditos
+  DATABASE_ENV=pro
+
+  # Correo electrónico — verificación TLS habilitada OBLIGATORIAMENTE
+  MAIL_REJECT_UNAUTHORIZED=true
+
+  # Puerto y host del servidor
+  NUXT_PORT=3000
+  NUXT_HOST=0.0.0.0
+  ```
+
+  **Nunca** establezcas `MAIL_REJECT_UNAUTHORIZED=false` en producción. Esta opción desactiva la verificación del certificado TLS del servidor SMTP y solo debe usarse para diagnóstico en entornos locales.
+</Warning>
+
+## Daemon de Monitoreo de Firmas
+
+El proceso `server/nohup/app.ts` es un daemon independiente que monitorea en tiempo real el estado de las firmas electrónicas pendientes. En producción debe ejecutarse como proceso de fondo separado al servidor Nuxt:
+
+```bash
+pnpm nohup:firmas:daemon
+```
+
+Este comando lanza el proceso con `nohup` y redirige tanto stdout como stderr al archivo de log `storage/logs/nohup-firmas.log`:
+
+```bash
+# Equivalente expandido del script nohup:firmas:daemon
+nohup pnpm nohup:firmas >> storage/logs/nohup-firmas.log 2>&1 &
+```
+
+Para verificar que el proceso está activo:
+
+```bash
+# Buscar el proceso en ejecución
+ps aux | grep "nohup:firmas"
+
+# Ver los últimos logs
+tail -f storage/logs/nohup-firmas.log
+```
+
+Asegúrate de que el directorio `storage/logs/` exista y tenga permisos de escritura antes de iniciar el daemon.
+
+## Health Check
+
+El servidor expone el endpoint `GET /api/health` para monitoreo externo. Retorna el estado general de la aplicación incluyendo si el sistema está en línea o en mantenimiento:
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "app": "Sistema de Creditos Comfaca",
+  "isOnline": true,
+  "version": "1.0.0"
+}
+```
+
+El campo `status` puede ser `"ok"` o `"maintenance"` según el valor de la clave `status_online` en la tabla de configuraciones. Configura tu balanceador de carga o monitor de uptime para hacer polling a este endpoint cada 30–60 segundos.
+
+## Prerender y Rutas Dinámicas
+
+La configuración de Nitro en `nuxt.config.ts` define qué rutas se prerrenderizan en build time y cuáles siempre se sirven de forma dinámica en el servidor:
+
+```typescript
+nitro: {
+  preset: "node-server",
+  experimental: {
+    asyncContext: true
+  },
+  prerender: {
+    routes: [],
+    ignore: ["/dashboard", "/dashboard/**", "/admin/**", "/dash/**"],
+    crawlLinks: false,
+    failOnError: false
+  }
+}
+```
+
+| Comportamiento | Rutas |
+|---|---|
+| **Prerenderizadas** (HTML estático en build) | Páginas públicas descubiertas por el crawler (landing, auth, etc.) |
+| **Excluidas del prerender** (SSR dinámico) | `/admin/**`, `/dash/**`, `/dashboard/**` |
+
+Las rutas `/admin/**` y `/dash/**` requieren autenticación y datos en tiempo real, por lo que siempre se sirven desde el servidor Node.js. `crawlLinks: false` evita que Nitro rastree y prerrendere páginas de forma automática, dejando el control explícito en el array `routes`.
+
+La regla adicional en `routeRules` desactiva ISR para el dashboard de usuario:
+
+```typescript
+routeRules: {
+  "/dash/**": { isr: false }
+}
+```
+
+## PM2 (Opcional)
+
+Para gestionar el ciclo de vida del proceso Node.js en producción, PM2 ofrece reinicio automático ante fallos, gestión de logs y monitoreo de métricas. El siguiente archivo de ecosistema sirve como punto de partida:
+
+```js
+// ecosystem.config.cjs
+module.exports = {
+  apps: [
+    {
+      name: "comfaca-creditos",
+      script: ".output/server/index.mjs",
+      instances: 1,
+      exec_mode: "fork",
+      env_production: {
+        NODE_ENV: "production",
+        NITRO_PRESET: "node"
+      },
+      error_file: "storage/logs/pm2-error.log",
+      out_file: "storage/logs/pm2-out.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      restart_delay: 3000,
+      max_restarts: 10
+    }
+  ]
+};
+```
+
+```bash
+# Iniciar con PM2
+pm2 start ecosystem.config.cjs --env production
+
+# Guardar la lista de procesos para reinicio automático al arrancar el sistema
+pm2 save
+pm2 startup
+```
+
+<Tip>
+  Antes de desplegar en el servidor de producción, puedes verificar que el build es funcional ejecutando `pnpm preview` en tu máquina local. Este comando sirve la carpeta `.output/` generada por `pnpm build` en `http://localhost:3000`, permitiéndote detectar errores de configuración sin afectar el entorno productivo.
+</Tip>

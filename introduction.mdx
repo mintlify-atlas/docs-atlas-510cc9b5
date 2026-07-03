@@ -1,0 +1,155 @@
+---
+title: "Comfaca Créditos en Línea: Plataforma Digital de Créditos"
+sidebarTitle: "Introducción"
+description: "Conoce la arquitectura, tecnologías clave y flujos de usuario de Comfaca Créditos en Línea, la plataforma web de créditos de COMFACA."
+---
+
+**Comfaca Créditos en Línea** es la plataforma web oficial de la **Caja de Compensación Familiar del Caquetá (COMFACA)** para la gestión digital de solicitudes de crédito. Desarrollada con Nuxt 4 y Vue 3, moderniza el proceso tradicional de solicitud y aprobación de créditos, permitiendo a los empleados afiliados radicar solicitudes en línea con carga de documentos, firma electrónica integrada y seguimiento en tiempo real. El equipo administrativo, por su parte, cuenta con un panel de back-office completo para gestionar, revisar y aprobar solicitudes sin necesidad de trámites presenciales.
+
+---
+
+## Casos de Uso
+
+<Tabs>
+  <Tab title="Afiliados">
+    Los empleados afiliados a COMFACA acceden al **front-office** de la plataforma para gestionar sus solicitudes de crédito de principio a fin:
+
+    1. **Registro y autenticación** — inicio de sesión con credenciales empresariales, recuperación de contraseña y gestión del perfil de usuario.
+    2. **Solicitud de crédito** — selección de la línea de crédito, diligenciamiento del formulario y carga de los documentos requeridos.
+    3. **Seguimiento del estado** — visualización en tiempo real del estado de la solicitud a lo largo de su ciclo de vida: `POSTULADO` → `DOCUMENTOS_CARGADOS` → `PENDIENTE_FIRMADO` → `APROBADA`.
+    4. **Firma electrónica** — visualización de los documentos contractuales generados, firma con código OTP y descarga del comprobante firmado.
+    5. **Descarga de documentos** — acceso a todos los documentos asociados a la solicitud una vez completado el proceso.
+  </Tab>
+  <Tab title="Administradores">
+    Los usuarios con rol administrador acceden al **back-office** para supervisar y gestionar la operación completa de créditos:
+
+    1. **Dashboard administrativo** — estadísticas de solicitudes por estado, gráficos de convenios activos, monitor de actividad reciente y distribución de usuarios por rol.
+    2. **Gestión de solicitudes** — listado con filtros avanzados, cambio de estados (de `POSTULADO` a `APROBADA` o `RECHAZADA`) y revisión de documentos adjuntos.
+    3. **Descarga masiva de documentos** — exportación individual o por lote de todos los documentos vinculados a una solicitud.
+    4. **Monitoreo de firmas** — vista en tiempo real del estado de firmas pendientes, estadísticas de completitud y reenvío de notificaciones a los afiliados.
+    5. **Gestión de convenios** — administración del catálogo de líneas de crédito y convenios disponibles para los afiliados.
+  </Tab>
+</Tabs>
+
+---
+
+## Tecnologías
+
+### Core
+
+| Tecnología | Versión | Descripción |
+|---|---|---|
+| [Nuxt](https://nuxt.com/) | ^4.4.2 | Framework full-stack basado en Vue 3 |
+| [Vue](https://vuejs.org/) | ^3.5.33 | Framework UI progresivo y reactivo |
+| [TypeScript](https://www.typescriptlang.org/) | ^6.0.3 | Tipado estático sobre JavaScript |
+| [Tailwind CSS](https://tailwindcss.com/) | ^4.2.4 | Framework CSS utility-first |
+
+### Backend
+
+| Tecnología | Versión | Descripción |
+|---|---|---|
+| [Prisma](https://www.prisma.io/) | ^7.8.0 | ORM para modelado y acceso a base de datos |
+| [MariaDB Adapter](https://www.prisma.io/docs/concepts/database-connectors/mariadb) | ^7.8.0 | Conector oficial de Prisma para MariaDB/MySQL |
+| [Nitro](https://nitro.unjs.io/) | Integrado | Engine de servidor HTTP incluido en Nuxt |
+| [Zod](https://zod.dev/) | ^4.3.6 | Validación de esquemas en endpoints de la API |
+
+### Auth
+
+| Tecnología | Versión | Descripción |
+|---|---|---|
+| [nuxt-auth-utils](https://github.com/atinux/nuxt-auth-utils) | ^0.5.29 | Gestión de sesiones cifradas para Nuxt |
+| [jose](https://github.com/panva/jose) | ^6.2.2 | Implementación JWT (firma y verificación) |
+| [bcryptjs](https://github.com/dcodeIO/bcrypt.js) | ^3.0.3 | Hash seguro de contraseñas con salt |
+
+### Integraciones
+
+| Servicio | Descripción |
+|---|---|
+| **API SISU** | Sistema de información de usuarios y afiliados de COMFACA |
+| **FirmaPlus** | Servicio externo de firma electrónica de documentos contractuales |
+| **FlaskPDF** | Microservicio de generación de documentos PDF |
+| **SFTP** | Transferencia segura de archivos firmados vía SSH |
+
+---
+
+## Roles de Usuario
+
+La plataforma reconoce tres tipos de usuario con accesos y capacidades diferenciados:
+
+| Rol | Tipo de acceso | Descripción |
+|---|---|---|
+| **Público** | Sin autenticación | Puede explorar la página de inicio (`/`), ver información general del proceso de crédito y acceder a los formularios de registro y autenticación. |
+| **Afiliado** | Front-office (`/dash/**`) | Empleado afiliado a COMFACA autenticado. Puede crear y gestionar sus propias solicitudes de crédito, firmar documentos electrónicamente y descargar comprobantes. |
+| **Administrador** | Back-office (`/admin/**`) | Funcionario de COMFACA con acceso total al panel administrativo. Puede revisar, aprobar o rechazar solicitudes, monitorear firmas y administrar convenios y usuarios. |
+
+<Note>
+  Las rutas `/dash/**` y `/admin/**` están protegidas por middleware de autenticación. El acceso sin sesión válida redirige automáticamente al inicio de sesión. Las sesiones tienen una duración máxima de **8 horas** con renovación automática.
+</Note>
+
+---
+
+## Estructura del Proyecto
+
+```
+nuxt-creditos/
+├── app/                    # Código fuente de la aplicación
+│   ├── components/         # Componentes Vue reutilizables
+│   │   ├── admin/          # Componentes de panel admin
+│   │   ├── dashboard/      # Componentes de dashboard
+│   │   ├── notifications/  # Sistema de notificaciones
+│   │   └── ui/             # Componentes UI base
+│   ├── composables/        # Composables Vue (lógica reutilizable)
+│   │   └── admin/          # Composables específicos de admin
+│   ├── layouts/            # Layouts de la aplicación
+│   ├── middleware/         # Middleware de autenticación
+│   ├── pages/              # Rutas de la aplicación
+│   │   ├── admin/          # Rutas de administración
+│   │   ├── auth/           # Rutas de autenticación
+│   │   └── dash/           # Dashboard de usuario
+│   └── assets/             # Recursos estáticos (CSS, imágenes)
+├── server/                 # API y lógica del servidor
+│   ├── api/                # Endpoints de la API
+│   │   ├── auth/           # Rutas de autenticación
+│   │   ├── admin/          # Rutas administrativas
+│   │   └── solicitudes/    # Rutas de solicitudes de crédito
+│   ├── middleware/         # Middleware del servidor
+│   ├── services/           # Servicios de negocio
+│   │   ├── admin/          # Servicios administrativos
+│   │   └── storage/        # Servicios de almacenamiento
+│   └── utils/              # Utilidades del servidor
+├── tests/                  # Suite de testing
+│   ├── setup/              # Configuración de entorno
+│   │   ├── global.ts       # Setup global de Vitest
+│   │   ├── integration.ts  # Setup para integración
+│   │   └── msw.ts          # Configuración de MSW
+│   ├── integration/        # Pruebas de integración
+│   │   └── api/
+│   └── unit/               # Pruebas unitarias
+├── shared/                 # Código compartido
+│   └── types/              # Definiciones de tipos TypeScript
+├── prisma/                 # Esquema y migraciones de Prisma
+└── public/                 # Archivos públicos estáticos
+```
+
+<Tip>
+  El alias `@/` apunta a `./app/` y `~~/` apunta a la raíz del proyecto. Úsalos en tus importaciones para mantener rutas consistentes independientemente de la profundidad del archivo.
+</Tip>
+
+---
+
+<CardGroup cols={2}>
+  <Card
+    title="Instalar y Ejecutar"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Levanta el entorno de desarrollo local en menos de 10 minutos con Node.js, pnpm y MariaDB.
+  </Card>
+  <Card
+    title="Ver Arquitectura"
+    icon="diagram-project"
+    href="/architecture/overview"
+  >
+    Explora en detalle la arquitectura de capas, el modelo de datos y los flujos de integración.
+  </Card>
+</CardGroup>

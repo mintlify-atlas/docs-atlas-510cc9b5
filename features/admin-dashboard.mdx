@@ -1,0 +1,288 @@
+---
+title: "Panel Administrativo de Comfaca Créditos en Línea"
+sidebarTitle: "Panel Administrativo"
+description: "Guía del panel administrativo de Comfaca Créditos: gestión de solicitudes, convenios, usuarios y estadísticas del dashboard en tiempo real."
+---
+
+El **panel administrativo** de Comfaca Créditos en Línea centraliza la gestión operativa del sistema: revisión y cambio de estado de solicitudes, administración de empresas con convenio, gestión de usuarios, monitoreo de firmas digitales y configuración general de la plataforma. Todas las rutas del panel requieren rol `admin` y autenticación activa.
+
+---
+
+## Dashboard Principal
+
+La página de inicio del panel (`/admin`) muestra un resumen ejecutivo cargado por `useAdminDashboard`, que consume el endpoint:
+
+```http
+GET /api/admin/dashboard/estadisticas
+Authorization: Bearer <token>
+```
+
+### Estructura de la respuesta
+
+```typescript
+{
+  solicitudes: {
+    total: number;
+    activos: number;               // Solicitudes en estados activos
+    pendientesFirma: number;       // Estado PENDIENTE_FIRMADO
+    tasaAprobacion: number;        // Porcentaje aprobadas / total
+    montoTotalAprobado: number;    // Suma de montos aprobados en COP
+    porEstado: Array<{
+      estado: string;
+      count: number;
+      color: string;               // Color para gráficas
+    }>;
+  };
+  convenios: {
+    activos: number;
+    topEmpresas: Array<{
+      razon_social: string;
+      nit: string;
+      numero_empleados: string;
+      tipo_empresa: string;
+    }>;
+  };
+  usuarios: {
+    trabajadores: number;
+    porRol: Array<{ role: string; count: number }>;
+  };
+  actividadReciente: {
+    solicitudesRecientes: Array<{
+      numero_solicitud: string;
+      estado: string;
+      created_at: string;
+      owner_username: string;
+    }>;
+    usuariosRecientes: Array<{
+      username: string;
+      created_at: string;
+      full_name: string;
+      roles: string[];
+    }>;
+  };
+  ultimaActualizacion: string; // ISO 8601
+}
+```
+
+### Indicadores del dashboard
+
+<CardGroup cols={2}>
+  <Card title="Total Solicitudes" icon="file-text">
+    Número acumulado de solicitudes registradas en el sistema, con desglose por estado representado en gráfica de barras o dona.
+  </Card>
+  <Card title="Solicitudes Pendientes de Firma" icon="clock">
+    Solicitudes en estado `PENDIENTE_FIRMADO`. Acceso directo al monitor de firmas.
+  </Card>
+  <Card title="Convenios Activos" icon="building">
+    Empresas con convenio vigente. Incluye top empresas por número de empleados.
+  </Card>
+  <Card title="Tasa de Aprobación" icon="trending-up">
+    Porcentaje de solicitudes aprobadas sobre el total procesado. Calculado por el servicio `stats.service.ts`.
+  </Card>
+</CardGroup>
+
+### Composable `useAdminDashboard`
+
+```typescript
+const {
+  stats,           // AdminStats con todos los indicadores
+  loading,
+  error,
+  lastUpdated,
+  tieneDatos,
+  tiempoSinActualizar, // "Actualizado hace 5 min"
+  totalUsuarios,   // Suma de usuariosPorRol[].count
+  cargarEstadisticas,
+  refrescarEstadisticas
+} = useAdminDashboard();
+```
+
+El composable carga las estadísticas en `onMounted` y expone `refrescarEstadisticas()` para actualizaciones manuales. `tiempoSinActualizar` muestra el tiempo transcurrido desde la última carga de forma legible en español.
+
+---
+
+## Gestión de Solicitudes
+
+La página `/admin/solicitudes` usa el composable `useAdminSolicitudes` para listar, filtrar, paginar y gestionar el ciclo de vida de las solicitudes.
+
+### Filtros y paginación
+
+```typescript
+const filtrosActivos = ref<FiltrosSolicitudes>({
+  skip: 0,
+  limit: 20,
+  // Opcionales:
+  estados: [],          // Array de IDs de estado
+  numero_documento: "",
+  nombre_usuario: "",
+  owner_username: "",
+  numero_solicitud: ""
+});
+```
+
+La carga se realiza contra:
+
+```http
+GET /api/admin/solicitudes?limit=20&skip=0&estado=<estadoId>
+Authorization: Bearer <token>
+```
+
+### Cambio de estado
+
+El modal de cambio de estado permite seleccionar un nuevo estado y agregar una descripción opcional:
+
+```typescript
+// Abre el modal
+cambiarEstado(solicitud);
+
+// Confirma el cambio vía PUT
+await actualizarEstado(solicitudId, nuevoEstado, descripcionOpcional);
+// PUT /api/admin/solicitudes/:id/estado
+```
+
+### Endpoints de solicitudes (admin)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/api/admin/solicitudes` | Listar con filtros y paginación |
+| `GET` | `/api/admin/solicitudes/:id` | Detalle completo de una solicitud |
+| `PUT` | `/api/admin/solicitudes/:id/estado` | Cambiar estado |
+| `DELETE` | `/api/solicitudes/:id` | Eliminar solicitud |
+| `GET` | `/api/admin/solicitudes/estados-count` | Conteo por estados |
+| `GET` | `/api/solicitudes/estados-solicitud` | Catálogo de estados disponibles |
+| `POST` | `/api/admin/solicitudes/:id/iniciar-firmado` | Iniciar proceso de firma digital |
+
+### Exportación CSV
+
+`exportarCSV()` genera y descarga un archivo `solicitudes_YYYY-MM-DD.csv` con los campos: número de solicitud, fecha, estado, valor solicitado, plazo, nombre completo, tipo y número de documento, email y teléfono.
+
+---
+
+## Gestión de Convenios
+
+La página `/admin/convenios` usa `useAdminConvenios` para administrar las empresas que tienen convenio de libranza activo con COMFACA.
+
+### Modelo `EmpresaConvenio`
+
+```typescript
+interface EmpresaConvenio {
+  id: string;
+  nit: string;                    // NIT de la empresa
+  razon_social: string;           // Razón social
+  fecha_convenio: string;         // Fecha de firma del convenio
+  fecha_vencimiento: string;      // Fecha de vencimiento
+  estado: "Activo" | "Inactivo";  // Estado del convenio
+  representante_documento: string;
+  representante_nombre: string;
+  telefono: string;
+  correo: string;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### Filtros disponibles
+
+```typescript
+const filtros = reactive({
+  estado: null as string | null,  // "Activo" | "Inactivo"
+  nit: "",
+  busqueda: ""                    // Búsqueda con debounce de 500 ms
+});
+```
+
+### Activar / desactivar convenio
+
+```typescript
+// Toggle estado Activo ↔ Inactivo
+await toggleEstadoEmpresa(empresa);
+// PUT /api/admin/empresas-convenios/:id/estado
+```
+
+### Endpoints de convenios (admin)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/api/admin/convenios` | Listar convenios con filtros y paginación |
+| `GET` | `/api/admin/empresas-convenios` | Alias — lista empresas con convenio |
+| `POST` | `/api/admin/convenios` | Crear nuevo convenio |
+| `PUT` | `/api/admin/empresas-convenios/:id/estado` | Cambiar estado del convenio |
+| `DELETE` | `/api/admin/empresas-convenios/:id` | Eliminar convenio |
+| `GET` | `/api/convenios/activo` | Convenio activo del afiliado autenticado |
+
+---
+
+## Gestión de Usuarios
+
+La página `/admin/users` permite consultar los usuarios registrados en el sistema, ver su historial de solicitudes y gestionar sus roles.
+
+### Endpoints de usuarios (admin)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/api/admin/users` | Listar usuarios |
+| `GET` | `/api/admin/users/:id` | Detalle de un usuario |
+| `PUT` | `/api/admin/users/:id` | Actualizar datos del usuario |
+| `DELETE` | `/api/admin/users/:id` | Eliminar usuario |
+| `GET` | `/api/admin/users/estadisticas` | Conteo de trabajadores y distribución por rol |
+
+La respuesta de `GET /api/admin/users/estadisticas` alimenta el widget de distribución de roles en el dashboard principal:
+
+```typescript
+{
+  data: {
+    trabajadores: number;
+    usuariosPorRol: Array<{ rol: string; count: number }>;
+  }
+}
+```
+
+---
+
+## Monitor de Firmas
+
+La página `/admin/firmas/monitor` usa `useMonitoreoFirmasRealTime` para ofrecer una vista en tiempo real de todas las solicitudes en proceso de firma digital.
+
+### Características principales
+
+- **Polling cada 30 segundos** con `iniciarPolling()` — la carga es silenciosa para no interrumpir la experiencia del administrador.
+- **Detección automática de cambios**: cuando una solicitud cambia de estado entre ciclos de polling, el cambio se registra en `cambiosRecientes` con marca de tiempo.
+- **Control de polling**: el administrador puede pausar y reanudar el polling con `togglePolling()`.
+- **Filtro por estado**: el selector `estadoFiltro` permite ver solo las solicitudes en un estado específico (`PENDIENTE_FIRMADO`, `FIRMADO`, `RECHAZADO`, `EXPIRADO`, `CANCELADO` o todas).
+- **Consulta individual**: `consultarEstado(solicitudId)` refresca el estado de una solicitud específica vía `GET /api/solicitudes/:id/estado-firmado`.
+
+### Estadísticas del monitor
+
+```typescript
+interface EstadisticasFirmas {
+  total: number;
+  pendientes: number;
+  firmados: number;
+  rechazados: number;
+  expirados: number;
+  porcentajeCompletado: number; // (firmados / total) × 100
+}
+```
+
+---
+
+## Rutas del Panel Admin
+
+| Ruta | Propósito |
+|---|---|
+| `/admin` | Dashboard principal con estadísticas y actividad reciente |
+| `/admin/solicitudes` | Listado de solicitudes con filtros, paginación y exportación CSV |
+| `/admin/solicitudes/:id` | Detalle completo de una solicitud, cambio de estado, PDF e inicio de firma |
+| `/admin/convenios` | Listado de empresas con convenio, activar/desactivar |
+| `/admin/convenios/create` | Formulario para registrar un nuevo convenio empresarial |
+| `/admin/users` | Gestión de usuarios del sistema |
+| `/admin/firmas` | Listado general de procesos de firma |
+| `/admin/firmas/monitor` | Monitor en tiempo real con polling automático |
+| `/admin/configuraciones` | Configuraciones globales del sistema (auxilio de transporte, límites, etc.) |
+| `/admin/contenido` | CMS de páginas públicas del portal |
+
+---
+
+<Tip>
+  Accede al panel administrativo únicamente con una cuenta que tenga el rol `admin` asignado. Los endpoints bajo `/api/admin/*` validan el rol en el middleware de autenticación del servidor. Si intentas acceder con un rol de afiliado (`afiliado`) o asesor (`asesor`), recibirás un error `403 Forbidden`.
+</Tip>

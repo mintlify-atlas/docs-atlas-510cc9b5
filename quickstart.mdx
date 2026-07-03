@@ -1,47 +1,184 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Quickstart: Levanta Comfaca Créditos en Línea en Minutos"
+sidebarTitle: "Quickstart"
+description: "Configura e inicia el entorno de desarrollo de Comfaca Créditos en Línea en menos de 10 minutos con Node.js, pnpm y MariaDB."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+Esta guía te lleva desde cero hasta tener el servidor de desarrollo de **Comfaca Créditos en Línea** corriendo en tu máquina local. Al finalizar, tendrás la aplicación completa disponible en `http://localhost:4000` con base de datos migrada, datos iniciales cargados y hot-reload activo para comenzar a desarrollar.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+---
 
-## Prerequisites
+## Requisitos Previos
 
-Before you begin, you must have:
+<Note>
+  Asegúrate de tener instaladas las siguientes herramientas antes de continuar:
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+  - **Node.js** >= 20.x — [Descargar Node.js](https://nodejs.org/)
+  - **pnpm** >= 10.x — instala con `npm install -g pnpm` o consulta [pnpm.io](https://pnpm.io/installation)
+  - **MariaDB** >= 10.6 **o MySQL** >= 8.0 con una base de datos creada y credenciales disponibles
+</Note>
 
-## Get started
+---
+
+## Instalación
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clonar el repositorio">
+    Clona el repositorio y accede al directorio del proyecto:
 
     ```bash
-    npm install your-package
+    git clone <url-del-repositorio>
+    cd nuxt-creditos
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Instalar dependencias">
+    Instala todas las dependencias del proyecto usando pnpm:
 
     ```bash
-    your-cli init
+    pnpm install
+    ```
+
+    <Tip>
+      pnpm utiliza un almacén de paquetes compartido que acelera las instalaciones y ahorra espacio en disco. El archivo `pnpm-lock.yaml` garantiza versiones reproducibles.
+    </Tip>
+  </Step>
+
+  <Step title="Configurar variables de entorno">
+    Copia la plantilla de variables de entorno y completa los valores de tu entorno local:
+
+    ```bash
+    cp .env.template .env
+    ```
+
+    Edita `.env` con tus datos reales. Como mínimo debes configurar la cadena de conexión a la base de datos, el secreto JWT y la sesión:
+
+    ```bash
+    # Base de datos
+    DATABASE_URL="mysql://usuario:contraseña@localhost:3306/comfaca_creditos"
+
+    # Servidor
+    NUXT_PORT=4000
+    NUXT_HOST="localhost"
+    NUXT_JWT_SECRET="un-secreto-largo-y-aleatorio"
+    NUXT_SESSION_PASSWORD="otra-cadena-aleatoria-de-al-menos-32-chars"
+
+    # Entorno de ejecución
+    NODE_ENV=development
+    STAGE=dev
+    ```
+
+    <Warning>
+      Nunca confirmes el archivo `.env` en el repositorio. Contiene credenciales sensibles. El archivo `.env.template` (sin valores) es el que debe mantenerse versionado.
+    </Warning>
+  </Step>
+
+  <Step title="Generar cliente Prisma">
+    Genera el cliente de Prisma a partir del esquema definido en `prisma/schema.prisma`:
+
+    ```bash
+    pnpm db:generate
+    ```
+
+    Este paso debe repetirse cada vez que modifiques el esquema de Prisma.
+  </Step>
+
+  <Step title="Ejecutar migraciones">
+    Aplica todas las migraciones pendientes sobre la base de datos configurada en `DATABASE_URL`:
+
+    ```bash
+    pnpm db:migrate
+    ```
+
+    Prisma creará las tablas y relaciones definidas en el esquema. Si es la primera vez, aplicará todas las migraciones históricas en orden.
+  </Step>
+
+  <Step title="Cargar datos iniciales">
+    Ejecuta los seeders para poblar la base de datos con los datos iniciales necesarios (roles, líneas de crédito, convenios base, usuario administrador, etc.):
+
+    ```bash
+    pnpm db:seed
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Iniciar servidor de desarrollo">
+    Levanta el servidor de desarrollo con hot-reload:
 
     ```bash
-    your-cli start
+    pnpm dev
     ```
+
+    Nuxt compilará la aplicación y arrancará el servidor. Verás en la consola la URL local donde está disponible.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+---
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+## Verificar Instalación
+
+Por defecto, la aplicación corre en el puerto definido por `NUXT_PORT` en tu `.env`. La plantilla establece:
+
+```bash
+NUXT_PORT=4000
+```
+
+Abre tu navegador en **[http://localhost:4000](http://localhost:4000)**. Deberías ver:
+
+- **Página de inicio pública** con el carrusel hero de Comfaca, la sección de proceso de solicitud y los testimonios.
+- **Enlace de ingreso** disponible en la barra de navegación para acceder como afiliado o administrador.
+- Sin errores de consola relacionados con la base de datos ni con las variables de entorno.
+
+<Note>
+  Si el puerto `4000` está ocupado, cambia el valor de `NUXT_PORT` en `.env` y reinicia el servidor. Nuxt también mostrará la URL exacta en los logs de arranque.
+</Note>
+
+---
+
+## Scripts Disponibles
+
+Todos los scripts se ejecutan con `pnpm <script>`. A continuación, el listado completo definido en `package.json`:
+
+| Script | Comando completo | Descripción |
+|---|---|---|
+| `dev` | `nuxt dev` | Servidor de desarrollo con hot-reload |
+| `build` | `nuxt build` | Compila la aplicación para producción |
+| `preview` | `nuxt preview` | Previsualiza el build de producción en local |
+| `lint` | `eslint .` | Ejecuta ESLint sobre todo el proyecto |
+| `typecheck` | `nuxt typecheck` | Verifica tipos TypeScript sin emitir archivos |
+| `db:generate` | `prisma generate` | Genera el cliente Prisma desde el esquema |
+| `db:push` | `prisma db push` | Sincroniza el esquema con la BD sin migraciones |
+| `db:pull` | `prisma db pull` | Introspección: genera el esquema desde la BD existente |
+| `db:migrate` | `prisma migrate dev` | Crea y aplica migraciones en modo desarrollo |
+| `db:reset` | `prisma migrate reset` | Reinicia la BD y vuelve a aplicar todas las migraciones |
+| `db:seed` | `prisma db seed` | Ejecuta los seeders de datos iniciales |
+| `test` | `vitest` | Ejecuta todos los tests en modo watch |
+| `test:ui` | `vitest --ui` | Abre la interfaz visual de Vitest en el navegador |
+| `test:unit` | `vitest run` | Ejecuta los tests unitarios una sola vez |
+| `test:integration` | `vitest run --project integration` | Ejecuta las pruebas de integración de la API |
+| `test:e2e` | `playwright test` | Ejecuta las pruebas end-to-end con Playwright |
+| `test:coverage` | `vitest run --coverage` | Genera reporte de cobertura de código |
+| `nohup:firmas` | `tsx server/nohup/app.ts` | Inicia el proceso de monitoreo de firmas en primer plano |
+| `nohup:firmas:daemon` | `nohup pnpm nohup:firmas >> storage/logs/nohup-firmas.log 2>&1 &` | Inicia el monitor de firmas como proceso en segundo plano (daemon) |
+
+<Tip>
+  Para el flujo de desarrollo habitual, los scripts más usados son `pnpm dev`, `pnpm lint`, `pnpm typecheck` y `pnpm test`. Ejecuta `pnpm db:migrate` cada vez que incorpores cambios al esquema de Prisma.
 </Tip>
+
+---
+
+<CardGroup cols={2}>
+  <Card
+    title="Configurar Variables de Entorno"
+    icon="sliders"
+    href="/setup/environment"
+  >
+    Descripción completa de todas las variables de entorno: base de datos, APIs externas, correo, SFTP y seguridad.
+  </Card>
+  <Card
+    title="Configurar Base de Datos"
+    icon="database"
+    href="/setup/database"
+  >
+    Guía para crear la base de datos MariaDB, gestionar migraciones con Prisma y ejecutar los seeders iniciales.
+  </Card>
+</CardGroup>

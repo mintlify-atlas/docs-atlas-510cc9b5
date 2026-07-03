@@ -1,0 +1,310 @@
+---
+title: "GET /api/admin/dashboard/estadisticas — Métricas del Dashboard"
+sidebarTitle: "Dashboard"
+description: "Obtiene estadísticas del dashboard administrativo: conteos por estado, convenios activos, usuarios por rol y actividad reciente."
+---
+
+El endpoint de estadísticas del dashboard es el punto de entrada principal para el panel de control administrativo de Comfaca Créditos en Línea. En una sola petición agrega cuatro dimensiones analíticas del sistema: el estado del portafolio de solicitudes de crédito (incluyendo tasas de aprobación, montos acumulados y distribución por estado), el rendimiento del programa de convenios empresariales, la composición del directorio de usuarios por rol y la actividad más reciente del sistema. Esta consolidación evita múltiples llamadas paralelas desde el cliente y permite renderizar el dashboard completo con un único fetch.
+
+<Warning>
+  Este endpoint requiere una sesión activa con **rol administrador**. Las peticiones sin autenticación o con rol insuficiente recibirán `401 Unauthorized` o `403 Forbidden`.
+</Warning>
+
+---
+
+## GET /api/admin/dashboard/estadisticas
+
+### Autenticación
+
+**Requiere rol administrador.** Se autentica mediante la cookie de sesión de Nuxt (`nuxt-session`).
+
+### Query Parameters
+
+Este endpoint no acepta parámetros de consulta. Siempre devuelve las estadísticas del estado actual del sistema completo.
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` cuando la consulta se ejecuta sin errores.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Consulta completada exitosamente"`.
+</ResponseField>
+
+<ResponseField name="ultimaActualizacion" type="string">
+  Timestamp ISO 8601 del momento en que se generó la respuesta. Útil para mostrar en el dashboard cuándo se actualizaron los datos por última vez.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="Estructura completa de data">
+
+    <ResponseField name="solicitudes" type="object">
+      Estadísticas del portafolio de solicitudes de crédito.
+
+      <Expandable title="Campos de solicitudes">
+        <ResponseField name="total" type="number">
+          Total de solicitudes registradas en el sistema (todos los estados).
+        </ResponseField>
+        <ResponseField name="aprobadas" type="number">
+          Número de solicitudes con estado `APROBADA`.
+        </ResponseField>
+        <ResponseField name="activas" type="number">
+          Solicitudes que aún están en el flujo de validación (excluye `RECHAZADA`, `DESESTIMADA`, `CANCELADA` y `DESISTE`).
+        </ResponseField>
+        <ResponseField name="pendientesFirma" type="number">
+          Solicitudes con estado `PENDIENTE_FIRMADO` esperando la firma digital de los involucrados.
+        </ResponseField>
+        <ResponseField name="montoTotalAprobado" type="number | null">
+          Suma total del campo `valor_solicitud` de todas las solicitudes aprobadas, en pesos colombianos (COP).
+        </ResponseField>
+        <ResponseField name="tasaAprobacion" type="number">
+          Porcentaje de aprobación calculado como `(aprobadas / total) * 100`. Retorna `0` si no hay solicitudes.
+        </ResponseField>
+        <ResponseField name="porEstado" type="array">
+          Distribución de solicitudes por cada estado activo en la tabla `estados_solicitud`, ordenada por el campo `orden`.
+
+          <Expandable title="Estructura de cada elemento">
+            <ResponseField name="estado" type="string">ID del estado (ej. `POSTULADO`, `APROBADA`).</ResponseField>
+            <ResponseField name="nombre" type="string">Nombre legible del estado (ej. `"Postulado"`, `"Aprobada"`).</ResponseField>
+            <ResponseField name="count" type="string">Cantidad de solicitudes en este estado (serializado como string).</ResponseField>
+            <ResponseField name="color" type="string">Color HEX o nombre CSS asignado al estado para la visualización en gráficas.</ResponseField>
+          </Expandable>
+        </ResponseField>
+        <ResponseField name="porMes" type="array">
+          Tendencia de nuevas solicitudes en los últimos 6 meses.
+
+          <Expandable title="Estructura de cada elemento">
+            <ResponseField name="mes" type="string">Mes en formato `YYYY-MM`.</ResponseField>
+            <ResponseField name="nombre" type="string">Nombre legible del mes en español (ej. `"noviembre de 2024"`).</ResponseField>
+            <ResponseField name="count" type="number">Número de solicitudes creadas en ese mes.</ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+
+    <ResponseField name="convenios" type="object">
+      Estadísticas del programa de convenios empresariales.
+
+      <Expandable title="Campos de convenios">
+        <ResponseField name="activos" type="string">
+          Número de convenios con estado `Activo` (serializado como string).
+        </ResponseField>
+        <ResponseField name="totalEmpresas" type="string">
+          Total de empresas únicas registradas por NIT (serializado como string).
+        </ResponseField>
+        <ResponseField name="topEmpresas" type="array">
+          Las 5 empresas con mayor número de empleados registrados.
+
+          <Expandable title="Estructura de cada empresa">
+            <ResponseField name="razon_social" type="string">Nombre de la empresa.</ResponseField>
+            <ResponseField name="nit" type="string">NIT de la empresa.</ResponseField>
+            <ResponseField name="numero_empleados" type="string">Número de empleados registrados.</ResponseField>
+            <ResponseField name="tipo_empresa" type="string | null">Tipo de sociedad (S.A.S., E.S.P., etc.).</ResponseField>
+          </Expandable>
+        </ResponseField>
+        <ResponseField name="porTipo" type="array">
+          Distribución de convenios por tipo de empresa.
+
+          <Expandable title="Estructura de cada elemento">
+            <ResponseField name="tipo_empresa" type="string | null">Tipo de empresa.</ResponseField>
+            <ResponseField name="count" type="string">Cantidad de empresas de ese tipo.</ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+
+    <ResponseField name="usuarios" type="object">
+      Estadísticas del directorio de usuarios del sistema.
+
+      <Expandable title="Campos de usuarios">
+        <ResponseField name="total" type="number">Total de usuarios registrados.</ResponseField>
+        <ResponseField name="activos" type="number">Usuarios con `disabled: false`.</ResponseField>
+        <ResponseField name="recientes" type="number">Usuarios creados en los últimos 30 días.</ResponseField>
+        <ResponseField name="trabajadores" type="string | undefined">
+          Cantidad de usuarios con rol `user_trabajador`.
+        </ResponseField>
+        <ResponseField name="porRol" type="array">
+          Distribución de usuarios por rol.
+
+          <Expandable title="Estructura de cada elemento">
+            <ResponseField name="role" type="string">Nombre del rol (ej. `admin`, `user_trabajador`, `asesor`).</ResponseField>
+            <ResponseField name="count" type="string">Número de usuarios con ese rol.</ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+
+    <ResponseField name="actividadReciente" type="object">
+      Snapshot de la actividad más reciente del sistema.
+
+      <Expandable title="Campos de actividadReciente">
+        <ResponseField name="solicitudesRecientes" type="array">
+          Las últimas 5 solicitudes de crédito creadas, ordenadas por `created_at` descendente.
+
+          <Expandable title="Campos de cada solicitud reciente">
+            <ResponseField name="numero_solicitud" type="string">Número de la solicitud.</ResponseField>
+            <ResponseField name="estado" type="string">Estado actual de la solicitud.</ResponseField>
+            <ResponseField name="created_at" type="string">Fecha de creación.</ResponseField>
+            <ResponseField name="owner_username" type="string">Username del solicitante.</ResponseField>
+          </Expandable>
+        </ResponseField>
+        <ResponseField name="usuariosRecientes" type="array">
+          Los últimos 5 usuarios creados, ordenados por `created_at` descendente.
+
+          <Expandable title="Campos de cada usuario reciente">
+            <ResponseField name="username" type="string">Username del nuevo usuario.</ResponseField>
+            <ResponseField name="full_name" type="string | null">Nombre completo.</ResponseField>
+            <ResponseField name="numero_documento" type="string | null">Documento de identidad.</ResponseField>
+            <ResponseField name="roles" type="array">Roles asignados al usuario.</ResponseField>
+            <ResponseField name="created_at" type="string">Fecha de registro.</ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+
+  </Expandable>
+</ResponseField>
+
+---
+
+### Ejemplo de petición
+
+```bash
+curl -X GET "https://app.comfaca.com/api/admin/dashboard/estadisticas" \
+  -H "Cookie: nuxt-session=<token>"
+```
+
+### Ejemplo de respuesta completa
+
+```json
+{
+  "success": true,
+  "message": "Consulta completada exitosamente",
+  "data": {
+    "solicitudes": {
+      "total": 102,
+      "aprobadas": 34,
+      "activas": 61,
+      "pendientesFirma": 3,
+      "montoTotalAprobado": 850000000,
+      "tasaAprobacion": 33.33,
+      "porEstado": [
+        { "estado": "POSTULADO",           "nombre": "Postulado",             "count": "12", "color": "#6B7280" },
+        { "estado": "DOCUMENTOS_CARGADOS", "nombre": "Documentos cargados",   "count": "8",  "color": "#F59E0B" },
+        { "estado": "ENVIADO_VALIDACION",  "nombre": "Enviado a validación",  "count": "5",  "color": "#3B82F6" },
+        { "estado": "PENDIENTE_FIRMADO",   "nombre": "Pendiente de firmado",  "count": "3",  "color": "#8B5CF6" },
+        { "estado": "FIRMADO",             "nombre": "Firmado",               "count": "27", "color": "#10B981" },
+        { "estado": "APROBADA",            "nombre": "Aprobada",              "count": "34", "color": "#22C55E" },
+        { "estado": "RECHAZADA",           "nombre": "Rechazada",             "count": "6",  "color": "#EF4444" },
+        { "estado": "DESESTIMADA",         "nombre": "Desestimada",           "count": "2",  "color": "#F97316" },
+        { "estado": "CANCELADA",           "nombre": "Cancelada",             "count": "1",  "color": "#9CA3AF" },
+        { "estado": "DESISTE",             "nombre": "Desistida",             "count": "4",  "color": "#D1D5DB" }
+      ],
+      "porMes": [
+        { "mes": "2024-06", "nombre": "junio de 2024",      "count": 9  },
+        { "mes": "2024-07", "nombre": "julio de 2024",      "count": 14 },
+        { "mes": "2024-08", "nombre": "agosto de 2024",     "count": 18 },
+        { "mes": "2024-09", "nombre": "septiembre de 2024", "count": 21 },
+        { "mes": "2024-10", "nombre": "octubre de 2024",    "count": 22 },
+        { "mes": "2024-11", "nombre": "noviembre de 2024",  "count": 18 }
+      ]
+    },
+    "convenios": {
+      "activos": "45",
+      "totalEmpresas": "52",
+      "topEmpresas": [
+        { "razon_social": "Hospital Regional del Norte E.S.P.", "nit": "900456789", "numero_empleados": "850", "tipo_empresa": "E.S.P." },
+        { "razon_social": "Constructora Andina S.A.S.",         "nit": "900123456", "numero_empleados": "250", "tipo_empresa": "S.A.S." }
+      ],
+      "porTipo": [
+        { "tipo_empresa": "S.A.S.",  "count": "28" },
+        { "tipo_empresa": "E.S.P.",  "count": "10" },
+        { "tipo_empresa": "S.A.",    "count": "7"  },
+        { "tipo_empresa": "Ltda.",   "count": "5"  },
+        { "tipo_empresa": null,      "count": "2"  }
+      ]
+    },
+    "usuarios": {
+      "total": 187,
+      "activos": 180,
+      "recientes": 14,
+      "trabajadores": "162",
+      "porRol": [
+        { "role": "user_trabajador", "count": "162" },
+        { "role": "asesor",          "count": "18"  },
+        { "role": "admin",           "count": "7"   }
+      ]
+    },
+    "actividadReciente": {
+      "solicitudesRecientes": [
+        {
+          "numero_solicitud": "SOL-2024-000102",
+          "estado": "DOCUMENTOS_CARGADOS",
+          "created_at": "2024-11-15T14:22:00.000Z",
+          "owner_username": "pedro.ramirez"
+        },
+        {
+          "numero_solicitud": "SOL-2024-000101",
+          "estado": "APROBADA",
+          "created_at": "2024-11-15T11:05:00.000Z",
+          "owner_username": "lucia.vargas"
+        }
+      ],
+      "usuariosRecientes": [
+        {
+          "username": "ana.moreno",
+          "full_name": "Ana Moreno Castillo",
+          "numero_documento": "63456789",
+          "roles": ["user_trabajador"],
+          "created_at": "2024-11-15T09:00:00.000Z"
+        }
+      ]
+    }
+  },
+  "ultimaActualizacion": "2024-11-15T17:30:00.000Z",
+  "timestamp": "2024-11-15T17:30:00.000Z"
+}
+```
+
+---
+
+## Tipo `AdminStats`
+
+Estructura TypeScript del objeto de estadísticas utilizado por el composable del dashboard:
+
+```typescript
+interface AdminStats {
+  totalSolicitudes: number
+  solicitudesActivas: number
+  conveniosActivos: number
+  trabajadoresRegistrados: number
+  solicitudesPendientesFirma: number
+  tasaAprobacion: number
+  montoTotalAprobado: number
+  solicitudesPorEstado: Array<{
+    estado: string
+    count: number
+    color: string
+  }>
+  actividadReciente: Array<{
+    id: string
+    tipo: string
+    descripcion: string
+    fecha: string
+  }>
+  usuariosPorRol: Array<{
+    rol: string
+    count: number
+  }>
+  topEmpresas: Array<{
+    nombre: string
+    trabajadores: number
+    convenio: string
+  }>
+}
+```
+
+<Tip>
+  Para refrescar únicamente los contadores por estado sin recargar todas las estadísticas del dashboard, usa el endpoint más liviano `GET /api/admin/solicitudes/estados-count`. Este solo ejecuta un `groupBy` en la tabla de solicitudes y es significativamente más rápido que el endpoint de estadísticas completas.
+</Tip>

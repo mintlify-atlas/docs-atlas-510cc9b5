@@ -1,0 +1,257 @@
+---
+title: "POST /api/auth/register — Registrar Nuevo Usuario"
+sidebarTitle: "POST /register"
+description: "Registra un nuevo afiliado en Comfaca Créditos. Valida datos con Zod, hashea contraseña con bcrypt y envía email de verificación."
+---
+
+El flujo de registro en **Comfaca Créditos en Línea** consta de cuatro pasos encadenados: (1) crear la cuenta con `POST /api/auth/register`, (2) recibir un código de verificación por email, (3) confirmar ese código con `POST /api/auth/verify-code`, y (4) —opcionalmente— verificar la cuenta desde el enlace de email con `GET /api/auth/verify`. Si el usuario no recibió el código, puede solicitarlo nuevamente con `POST /api/auth/resend-code`.
+
+Todos los campos del cuerpo de registro son validados con **Zod** antes de procesarse: los textos de `nombres` y `apellidos` se convierten automáticamente a **mayúsculas**, y el `email` se normaliza a mayúsculas y se elimina el espaciado. La contraseña se almacena hasheada con **bcrypt**.
+
+<Note>
+  La cuenta queda en estado **no verificado** hasta que el afiliado complete la verificación de email mediante `POST /api/auth/verify-code` o el enlace enviado al correo. **No es posible iniciar sesión antes de verificar la cuenta.**
+</Note>
+
+---
+
+## POST /api/auth/register
+
+**Autenticación:** No requiere autenticación previa.
+
+### Cuerpo de la petición
+
+<ParamField body="tipo_documento" type="string" required>
+  Código del tipo de documento de identidad del afiliado. Máximo **3 caracteres**. Ejemplos: `"CC"` (Cédula de Ciudadanía), `"CE"` (Cédula de Extranjería).
+</ParamField>
+
+<ParamField body="numero_documento" type="string" required>
+  Número de documento de identidad. Máximo **16 caracteres**.
+</ParamField>
+
+<ParamField body="nombres" type="string" required>
+  Nombres del afiliado. Máximo **80 caracteres**. Se almacenan en **MAYÚSCULAS** automáticamente.
+</ParamField>
+
+<ParamField body="apellidos" type="string" required>
+  Apellidos del afiliado. Máximo **80 caracteres**. Se almacenan en **MAYÚSCULAS** automáticamente.
+</ParamField>
+
+<ParamField body="telefono" type="string" required>
+  Número de teléfono móvil del afiliado. Máximo **10 caracteres** (formato colombiano, ej. `"3001234567"`).
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Correo electrónico válido del afiliado. Se normaliza a **MAYÚSCULAS** y se elimina el espaciado inicial/final. Debe cumplir el formato `usuario@dominio.tld`.
+</ParamField>
+
+<ParamField body="username" type="string" required>
+  Nombre de usuario para autenticarse en la plataforma. Mínimo **3 caracteres**.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Contraseña de la cuenta. Mínimo **8 caracteres**. Se almacena hasheada con bcrypt.
+</ParamField>
+
+<ParamField body="confirmar_password" type="string" required>
+  Confirmación de la contraseña. Debe coincidir con `password`. La validación de igualdad se aplica en el servicio de registro.
+</ParamField>
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  `true` cuando el usuario fue creado y el email de verificación fue enviado.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Mensaje descriptivo del resultado.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Datos del usuario recién creado y metadatos del proceso de registro.
+
+  <Expandable title="Propiedades de data">
+    <ResponseField name="data.username" type="string">
+      Nombre de usuario registrado.
+    </ResponseField>
+    <ResponseField name="data.email" type="string">
+      Email normalizado del afiliado.
+    </ResponseField>
+    <ResponseField name="data.message" type="string">
+      Confirmación del envío de email, por ejemplo `"Código de verificación enviado a su correo."`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `422` | Error de validación Zod | Campos faltantes, email inválido, `username` < 3 caracteres o `password` < 8 caracteres. |
+| `409` | Usuario duplicado | Ya existe un usuario con el mismo `username`, `email` o `numero_documento`. |
+| `502` | Error de backend | Fallo al conectar con el servicio de autenticación o al enviar el email de verificación. |
+
+---
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "tipo_documento": "CC",
+    "numero_documento": "1012345678",
+    "nombres": "Juan Carlos",
+    "apellidos": "Pérez Gómez",
+    "telefono": "3001234567",
+    "email": "juan.perez@empresa.com",
+    "username": "juan.perez",
+    "password": "MiPassword2024!",
+    "confirmar_password": "MiPassword2024!"
+  }'
+```
+
+### Ejemplo — Respuesta exitosa `201`
+
+```json
+{
+  "success": true,
+  "data": {
+    "username": "juan.perez",
+    "email": "JUAN.PEREZ@EMPRESA.COM",
+    "message": "Código de verificación enviado a su correo."
+  }
+}
+```
+
+---
+
+## POST /api/auth/verify-code
+
+Verifica el código de activación de **4 a 6 dígitos** enviado al email del afiliado durante el registro. Una vez verificado correctamente, la cuenta queda activa y el usuario puede iniciar sesión.
+
+**Autenticación:** No requiere autenticación previa.
+
+### Cuerpo de la petición
+
+<ParamField body="codigo" type="string" required>
+  Código de verificación recibido por email. Entre **4 y 6 caracteres**.
+</ParamField>
+
+<ParamField body="coddoc" type="string" required>
+  Código del tipo de documento del afiliado a verificar. Máximo **3 caracteres** (ej. `"CC"`).
+</ParamField>
+
+<ParamField body="documento" type="string" required>
+  Número de documento del afiliado que debe ser verificado. Máximo **16 caracteres**.
+</ParamField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `400` / `422` | Datos inválidos | El código, `coddoc` o `documento` no cumplen el esquema Zod. |
+| `400` | Código incorrecto o expirado | El código no coincide o ya fue utilizado. |
+| `502` | Error de backend | Fallo al contactar el servicio de verificación. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/auth/verify-code \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "codigo": "482931",
+    "coddoc": "CC",
+    "documento": "1012345678"
+  }'
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Verificación exitosa.",
+  "data": {
+    "message": "Su cuenta ha sido activada correctamente."
+  }
+}
+```
+
+---
+
+## POST /api/auth/resend-code
+
+Reenvía el código de verificación al email del afiliado cuando el código original no fue recibido o expiró.
+
+**Autenticación:** No requiere autenticación previa.
+
+### Cuerpo de la petición
+
+<ParamField body="coddoc" type="string" required>
+  Código del tipo de documento del afiliado. Máximo **3 caracteres** (ej. `"CC"`, `"CE"`).
+</ParamField>
+
+<ParamField body="documento" type="string" required>
+  Número de documento del afiliado. Máximo **16 caracteres**.
+</ParamField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `422` | Validación Zod | `coddoc` o `documento` no cumplen el esquema. |
+| `404` | Usuario no encontrado | No existe un usuario con ese tipo y número de documento. |
+| `502` | Error de backend | Fallo al enviar el email. |
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/auth/resend-code \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "coddoc": "CC",
+    "documento": "1012345678"
+  }'
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Código reenviado.",
+  "data": {
+    "message": "Se ha enviado un nuevo código a su correo registrado."
+  }
+}
+```
+
+---
+
+## GET /api/auth/verify
+
+Verifica la cuenta del afiliado a partir de un **token firmado** incluido en el enlace de verificación enviado por email. Este endpoint es invocado directamente por el cliente de email al hacer clic en el botón de verificación.
+
+**Autenticación:** No requiere autenticación previa. El token de verificación se envía como query parameter en la URL del enlace de email.
+
+### Ejemplo — cURL
+
+```bash
+curl -X GET "http://localhost:4000/api/auth/verify?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Verificación completada.",
+  "data": {
+    "message": "Cuenta verificada exitosamente. Ya puede iniciar sesión."
+  }
+}
+```
+
+<Warning>
+  El enlace de verificación por email tiene una vigencia limitada. Si el token ha expirado, usa [`POST /api/auth/resend-code`](#post-apiauthresend-code) para obtener un nuevo código y verificar la cuenta.
+</Warning>

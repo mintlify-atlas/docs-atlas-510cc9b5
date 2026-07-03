@@ -1,0 +1,305 @@
+---
+title: "API de Configuraciones del Sistema — Comfaca Créditos"
+sidebarTitle: "Configuraciones"
+description: "Lee y actualiza configuraciones dinámicas del sistema mediante la API de configuraciones. Incluye endpoints públicos y privados por clave."
+---
+
+El módulo de configuraciones de **Comfaca Créditos en Línea** permite gestionar parámetros operativos del sistema sin necesidad de redespliegue. Cada configuración es un par **clave-valor** almacenado en la base de datos, con metadatos que describen su tipo, categoría y si es editable en tiempo de ejecución. Los administradores pueden consultar y actualizar estas configuraciones desde el panel de administración; un subconjunto de ellas también está disponible públicamente para que el frontend pueda leer feature flags y datos de contacto sin autenticación.
+
+---
+
+## Claves de Configuración Disponibles
+
+Las siguientes configuraciones están sembradas por defecto en el sistema:
+
+<Expandable title="Ver todas las configuraciones del seed">
+
+| Clave | Valor por defecto | Tipo | Categoría | Descripción |
+|---|---|---|---|---|
+| `limite_solicitudes` | `10` | `number` | `solicitudes` | Límite máximo de solicitudes activas por usuario |
+| `limite_cuotas` | `60` | `number` | `credito` | Límite máximo de cuotas para un crédito |
+| `minimo_endeudamiento` | `30` | `percentage` | `credito` | Porcentaje mínimo de endeudamiento permitido |
+| `minimo_salario` | `1300000` | `currency` | `solicitudes` | Salario mínimo requerido para solicitar crédito (en pesos) |
+| `status_online` | `true` | `boolean` | `sistema` | Indica si el sistema está operando normalmente |
+| `minima_referencias` | `2` | `number` | `solicitudes` | Cantidad mínima de referencias requeridas por solicitante |
+| `tiempo_response` | `30` | `number` | `sistema` | Tiempo máximo de respuesta en días para servicios externos |
+| `notificacion_firma` | `true` | `boolean` | `notificaciones` | Habilitar notificaciones de firma digital |
+| `notificacion_estado` | `true` | `boolean` | `notificaciones` | Habilitar notificaciones de cambio de estado de solicitud |
+| `notificacion_plazo` | `true` | `boolean` | `notificaciones` | Habilitar recordatorios de plazo para obligaciones |
+| `salario_minimo` | `1750905` | `number` | `solicitudes` | Valor del salario mínimo actual (COP) |
+| `auxilio_transporte` | `249095` | `number` | `solicitudes` | Valor del auxilio de transporte (COP) |
+| `referencias_familiares` | `1` | `number` | `solicitudes` | Cantidad mínima de referencias familiares |
+| `referencias_personales` | `1` | `number` | `solicitudes` | Cantidad mínima de referencias personales |
+| `firma_digital_local` | `false` | `boolean` | `firma_digital` | Firma digital local o mediante proveedor externo |
+| `form_contact` | *(JSON)* | `json` | `contacto` | Datos de contacto del formulario de crédito |
+
+</Expandable>
+
+La clave `form_contact` almacena un objeto JSON con los datos de contacto:
+
+```json
+{
+  "email": "creditos@comfaca.com",
+  "telefono": "1234567",
+  "extension": "1020",
+  "ciudad": "Florencia Cáqueta",
+  "horarios": "Lunes a Viernes 8:00 AM - 5:00 PM"
+}
+```
+
+---
+
+## GET /api/configurations
+
+Retorna todas las configuraciones del sistema que tienen `editable: true`, ordenadas por categoría. **Requiere rol de administrador o permiso `system.admin`.**
+
+<Note>
+  Este endpoint está protegido. La autenticación se verifica a través de la cookie de sesión y el rol del usuario debe ser `administrator` o tener el permiso `system.admin`.
+</Note>
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Datos consultados con éxito",
+  "data": [
+    {
+      "clave": "auxilio_transporte",
+      "valor": "249095",
+      "descripcion": "Valor del auxilio de transporte",
+      "tipo": "number",
+      "categoria": "solicitudes",
+      "editable": true,
+      "required": true
+    },
+    {
+      "clave": "limite_cuotas",
+      "valor": "60",
+      "descripcion": "Límite máximo de cuotas para un crédito",
+      "tipo": "number",
+      "categoria": "credito",
+      "editable": true,
+      "required": true
+    }
+  ]
+}
+```
+
+<Expandable title="Campos de cada objeto SerializedConfiguration">
+  <ResponseField name="clave" type="string">
+    Clave única que identifica la configuración (ej: `status_online`, `limite_cuotas`).
+  </ResponseField>
+  <ResponseField name="valor" type="string">
+    Valor actual de la configuración serializado como cadena. Para configuraciones de tipo `json`, el valor es un string JSON.
+  </ResponseField>
+  <ResponseField name="descripcion" type="string | null">
+    Descripción legible del propósito de la configuración.
+  </ResponseField>
+  <ResponseField name="tipo" type="string">
+    Tipo de dato del valor. Posibles valores: `number`, `boolean`, `string`, `percentage`, `currency`, `json`.
+  </ResponseField>
+  <ResponseField name="categoria" type="string">
+    Agrupación lógica de la configuración. Posibles valores: `solicitudes`, `credito`, `sistema`, `notificaciones`, `firma_digital`, `contacto`.
+  </ResponseField>
+  <ResponseField name="editable" type="boolean">
+    Indica si la configuración puede ser modificada mediante la API. Siempre `true` en este endpoint (el servicio filtra por `editable: true`).
+  </ResponseField>
+  <ResponseField name="required" type="boolean">
+    Indica si la configuración es obligatoria para el funcionamiento del sistema.
+  </ResponseField>
+</Expandable>
+
+### Ejemplo curl
+
+```bash
+curl -X GET "https://tu-dominio.com/api/configurations" \
+  -H "Cookie: nuxt-session=<token-admin>"
+```
+
+---
+
+## PUT /api/configurations/:clave
+
+Actualiza el valor de una configuración existente por su clave. Solo disponible para usuarios con rol `administrator` o permiso `system.admin`. La configuración debe existir en la base de datos y tener `editable: true`.
+
+<Warning>
+  Modificar configuraciones como `status_online`, `minimo_endeudamiento` o `limite_cuotas` tiene efecto inmediato sobre el comportamiento del sistema de créditos. Úsalo con precaución.
+</Warning>
+
+### Path Parameters
+
+<ParamField path="clave" type="string" required>
+  Clave única de la configuración a actualizar. Debe coincidir exactamente con una configuración existente en la base de datos (ej: `limite_cuotas`, `status_online`).
+</ParamField>
+
+### Body
+
+<ParamField body="valor" type="string" required>
+  Nuevo valor para la configuración. No puede estar vacío. Para tipos `boolean` enviar `"true"` o `"false"`; para tipos `json` enviar un string JSON válido; para tipos `number` o `currency` enviar el número como string.
+</ParamField>
+
+```json
+{
+  "valor": "48"
+}
+```
+
+### Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Configuración 'limite_cuotas' actualizada exitosamente",
+  "data": {
+    "clave": "limite_cuotas",
+    "valor": "48",
+    "descripcion": "Límite máximo de cuotas para un crédito",
+    "tipo": "number",
+    "categoria": "credito",
+    "editable": true,
+    "required": true
+  }
+}
+```
+
+### Códigos de error
+
+| Código | Causa |
+|--------|-------|
+| `400`  | Clave no proporcionada o `valor` vacío (validación Zod) |
+| `401`  | No hay sesión activa o usuario no encontrado |
+| `403`  | El usuario no tiene rol de administrador, o la configuración no es editable (`editable: false`) |
+| `404`  | No existe una configuración con esa `clave` |
+| `500`  | Error interno del servidor |
+
+### Ejemplos curl
+
+```bash
+# Actualizar el límite máximo de cuotas
+curl -X PUT "https://tu-dominio.com/api/configurations/limite_cuotas" \
+  -H "Cookie: nuxt-session=<token-admin>" \
+  -H "Content-Type: application/json" \
+  -d '{"valor": "48"}'
+
+# Poner el sistema en modo mantenimiento
+curl -X PUT "https://tu-dominio.com/api/configurations/status_online" \
+  -H "Cookie: nuxt-session=<token-admin>" \
+  -H "Content-Type: application/json" \
+  -d '{"valor": "false"}'
+
+# Actualizar datos de contacto (tipo json)
+curl -X PUT "https://tu-dominio.com/api/configurations/form_contact" \
+  -H "Cookie: nuxt-session=<token-admin>" \
+  -H "Content-Type: application/json" \
+  -d '{"valor": "{\"email\":\"nuevo@comfaca.com\",\"telefono\":\"7654321\"}"}'
+```
+
+---
+
+## GET /api/public/configurations/:clave
+
+Retorna los datos de una configuración específica **sin requerir autenticación**. Devuelve únicamente los campos `clave`, `valor`, `tipo` y `descripcion`. Si la configuración no existe, retorna `data: null` con `success: true`.
+
+<Tip>
+  Usa este endpoint en el frontend para leer feature flags como `status_online`, datos de contacto (`form_contact`) o cualquier parámetro que el cliente necesite conocer antes del login. Al no requerir sesión, es seguro llamarlo desde páginas públicas y SSR.
+</Tip>
+
+### Path Parameters
+
+<ParamField path="clave" type="string" required>
+  Clave de la configuración a consultar (ej: `status_online`, `form_contact`).
+</ParamField>
+
+### Respuesta exitosa `200` — Configuración encontrada
+
+```json
+{
+  "success": true,
+  "message": "Configuración obtenida exitosamente",
+  "data": {
+    "clave": "status_online",
+    "valor": "true",
+    "tipo": "boolean",
+    "descripcion": "Indica si el sistema está operando normalmente"
+  }
+}
+```
+
+### Respuesta `200` — Configuración no encontrada
+
+```json
+{
+  "success": true,
+  "message": "Configuración no encontrada",
+  "data": null
+}
+```
+
+<Expandable title="Campos del objeto de respuesta pública">
+  <ResponseField name="clave" type="string">
+    Clave identificadora de la configuración.
+  </ResponseField>
+  <ResponseField name="valor" type="string">
+    Valor actual de la configuración. Para `boolean` retorna `"true"` / `"false"`; para `json` retorna el JSON serializado.
+  </ResponseField>
+  <ResponseField name="tipo" type="string">
+    Tipo de dato del valor: `number`, `boolean`, `string`, `percentage`, `currency`, `json`.
+  </ResponseField>
+  <ResponseField name="descripcion" type="string | null">
+    Descripción legible del propósito de la configuración.
+  </ResponseField>
+</Expandable>
+
+### Ejemplos curl
+
+```bash
+# Verificar si el sistema está en línea (útil en la página de login)
+curl -X GET "https://tu-dominio.com/api/public/configurations/status_online"
+
+# Obtener datos de contacto para el formulario público
+curl -X GET "https://tu-dominio.com/api/public/configurations/form_contact"
+
+# Verificar si las notificaciones de firma están habilitadas
+curl -X GET "https://tu-dominio.com/api/public/configurations/notificacion_firma"
+```
+
+### Uso en Nuxt 4 (frontend)
+
+```typescript
+// composables/useSystemConfig.ts — ejemplo de uso del endpoint público
+const { data } = await useFetch(
+  `/api/public/configurations/status_online`
+)
+
+if (data.value?.data?.valor === 'false') {
+  // Redirigir a página de mantenimiento
+  await navigateTo('/mantenimiento')
+}
+
+// Leer datos de contacto en una página pública
+const { data: contactData } = await useFetch(
+  `/api/public/configurations/form_contact`
+)
+
+const contactInfo = computed(() => {
+  if (!contactData.value?.data?.valor) return null
+  return JSON.parse(contactData.value.data.valor)
+})
+```
+
+---
+
+## Resumen de Endpoints
+
+<CardGroup cols={3}>
+  <Card title="GET /api/configurations" icon="list">
+    Lista todas las configuraciones editables. **Solo admins.**
+  </Card>
+  <Card title="PUT /api/configurations/:clave" icon="pencil">
+    Actualiza el valor de una configuración por clave. **Solo admins.**
+  </Card>
+  <Card title="GET /api/public/configurations/:clave" icon="globe">
+    Consulta una configuración pública sin autenticación.
+  </Card>
+</CardGroup>
