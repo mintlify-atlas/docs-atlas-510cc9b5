@@ -96,15 +96,15 @@ Retorna la lista de notificaciones del usuario autenticado, ordenadas de más re
 
 ```bash
 # Listar todas las notificaciones (máx. 50)
-curl -X GET "https://tu-dominio.com/api/notifications" \
+curl -X GET "https://app.comfaca.com/api/notifications" \
   -H "Cookie: nuxt-session=<token>"
 
 # Solo notificaciones no leídas
-curl -X GET "https://tu-dominio.com/api/notifications?unread=true" \
+curl -X GET "https://app.comfaca.com/api/notifications?unread=true" \
   -H "Cookie: nuxt-session=<token>"
 
 # Con límite personalizado
-curl -X GET "https://tu-dominio.com/api/notifications?limit=10" \
+curl -X GET "https://app.comfaca.com/api/notifications?limit=10" \
   -H "Cookie: nuxt-session=<token>"
 ```
 
@@ -132,7 +132,7 @@ Retorna únicamente el conteo de notificaciones no leídas del usuario autentica
 ### Ejemplo curl
 
 ```bash
-curl -X GET "https://tu-dominio.com/api/notifications/unread-count" \
+curl -X GET "https://app.comfaca.com/api/notifications/unread-count" \
   -H "Cookie: nuxt-session=<token>"
 ```
 
@@ -170,7 +170,7 @@ Marca una notificación específica como leída, estableciendo su campo `read_at
 ### Ejemplo curl
 
 ```bash
-curl -X PUT "https://tu-dominio.com/api/notifications/b3f1c2d4-89ab-4cde-bf01-23456789abcd/read" \
+curl -X PUT "https://app.comfaca.com/api/notifications/b3f1c2d4-89ab-4cde-bf01-23456789abcd/read" \
   -H "Cookie: nuxt-session=<token>"
 ```
 
@@ -199,7 +199,7 @@ Marca **todas** las notificaciones no leídas del usuario autenticado como leíd
 ### Ejemplo curl
 
 ```bash
-curl -X PUT "https://tu-dominio.com/api/notifications/mark-all-read" \
+curl -X PUT "https://app.comfaca.com/api/notifications/mark-all-read" \
   -H "Cookie: nuxt-session=<token>"
 ```
 
@@ -241,7 +241,7 @@ Elimina permanentemente una notificación. Solo el propietario de la notificaci�
 ### Ejemplo curl
 
 ```bash
-curl -X DELETE "https://tu-dominio.com/api/notifications/b3f1c2d4-89ab-4cde-bf01-23456789abcd" \
+curl -X DELETE "https://app.comfaca.com/api/notifications/b3f1c2d4-89ab-4cde-bf01-23456789abcd" \
   -H "Cookie: nuxt-session=<token>"
 ```
 

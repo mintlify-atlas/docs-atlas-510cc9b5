@@ -51,7 +51,11 @@ class DocumentoStorage {
 
   /** Inicializa el directorio de storage (crea si no existe). */
   async inicializarStorage(): Promise<void> {
-    await fs.mkdir(this.storagePath, { recursive: true });
+    try {
+      await fs.mkdir(this.storagePath, { recursive: true });
+    } catch (error) {
+      console.error("Error al inicializar storage:", error);
+    }
   }
 
   /** Guarda un documento PDF. Acepta contenido en base64 (string) o Buffer. */
@@ -72,24 +76,37 @@ class DocumentoStorage {
     return rutaArchivo;
   }
 
-  /** Lee un PDF del storage y devuelve su contenido en base64. */
+  /** Lee un PDF del storage y devuelve su contenido en base64. Devuelve null si no existe. */
   async obtenerPdf(solicitudId: string, nombre?: string): Promise<string | null> {
+    await this.inicializarStorage();
     const nombreArchivo = nombre || `solicitud_${solicitudId}.pdf`;
     const rutaArchivo = path.join(this.storagePath, nombreArchivo);
-    const contenido = await fs.readFile(rutaArchivo);
-    return contenido.toString("base64");
+    try {
+      const contenido = await fs.readFile(rutaArchivo);
+      return contenido.toString("base64");
+    } catch (error) {
+      console.error("Error al obtener PDF:", error);
+      return null;
+    }
   }
 
-  /** Elimina un PDF del storage. Devuelve true si la operación fue exitosa. */
+  /** Elimina un PDF del storage. Devuelve true si fue exitoso, false si falló. */
   async eliminarPdf(solicitudId: string, nombre?: string): Promise<boolean> {
+    await this.inicializarStorage();
     const nombreArchivo = nombre || `solicitud_${solicitudId}.pdf`;
     const rutaArchivo = path.join(this.storagePath, nombreArchivo);
-    await fs.unlink(rutaArchivo);
-    return true;
+    try {
+      await fs.unlink(rutaArchivo);
+      return true;
+    } catch (error) {
+      console.error("Error al eliminar PDF:", error);
+      return false;
+    }
   }
 
   /** Verifica si un PDF existe en el storage. */
   async existePdf(solicitudId: string, nombre?: string): Promise<boolean> {
+    await this.inicializarStorage();
     const nombreArchivo = nombre || `solicitud_${solicitudId}.pdf`;
     const rutaArchivo = path.join(this.storagePath, nombreArchivo);
     try {

@@ -23,7 +23,7 @@ Authorization: Bearer <token>
 {
   solicitudes: {
     total: number;
-    activos: number;               // Solicitudes en estados activos
+    activas: number;               // Solicitudes en estados activos
     pendientesFirma: number;       // Estado PENDIENTE_FIRMADO
     tasaAprobacion: number;        // Porcentaje aprobadas / total
     montoTotalAprobado: number;    // Suma de montos aprobados en COP
@@ -34,7 +34,7 @@ Authorization: Bearer <token>
     }>;
   };
   convenios: {
-    activos: number;
+    activos: string;               // Número como string (normalizado a number por el composable)
     topEmpresas: Array<{
       razon_social: string;
       nit: string;
@@ -43,8 +43,8 @@ Authorization: Bearer <token>
     }>;
   };
   usuarios: {
-    trabajadores: number;
-    porRol: Array<{ role: string; count: number }>;
+    trabajadores: string;          // Conteo del rol user_trabajador (string desde Prisma)
+    porRol: Array<{ role: string; count: string }>;
   };
   actividadReciente: {
     solicitudesRecientes: Array<{
@@ -85,15 +85,17 @@ Authorization: Bearer <token>
 
 ```typescript
 const {
-  stats,           // AdminStats con todos los indicadores
+  stats,                      // AdminStats con todos los indicadores
   loading,
   error,
   lastUpdated,
   tieneDatos,
-  tiempoSinActualizar, // "Actualizado hace 5 min"
-  totalUsuarios,   // Suma de usuariosPorRol[].count
+  tiempoSinActualizar,        // "Actualizado hace 5 min"
+  totalUsuarios,              // Suma de usuariosPorRol[].count
   cargarEstadisticas,
-  refrescarEstadisticas
+  refrescarEstadisticas,
+  cargarEstadisticasUsuarios, // Carga solo estadísticas de usuarios
+  cargarEstadisticasConvenios // Carga solo estadísticas de convenios
 } = useAdminDashboard();
 ```
 
@@ -196,7 +198,7 @@ const filtros = reactive({
 ```typescript
 // Toggle estado Activo ↔ Inactivo
 await toggleEstadoEmpresa(empresa);
-// PUT /api/admin/empresas-convenios/:id/estado
+// PUT /api/admin/convenios/:id
 ```
 
 ### Endpoints de convenios (admin)
@@ -204,10 +206,9 @@ await toggleEstadoEmpresa(empresa);
 | Método | Endpoint | Descripción |
 |---|---|---|
 | `GET` | `/api/admin/convenios` | Listar convenios con filtros y paginación |
-| `GET` | `/api/admin/empresas-convenios` | Alias — lista empresas con convenio |
-| `POST` | `/api/admin/convenios` | Crear nuevo convenio |
-| `PUT` | `/api/admin/empresas-convenios/:id/estado` | Cambiar estado del convenio |
-| `DELETE` | `/api/admin/empresas-convenios/:id` | Eliminar convenio |
+| `GET` | `/api/admin/convenios/:id` | Detalle de un convenio |
+| `POST` | `/api/admin/convenios/create` | Crear nuevo convenio |
+| `PUT` | `/api/admin/convenios/:id` | Actualizar convenio (incluye cambio de estado) |
 | `GET` | `/api/convenios/activo` | Convenio activo del afiliado autenticado |
 
 ---
@@ -223,19 +224,9 @@ La página `/admin/users` permite consultar los usuarios registrados en el siste
 | `GET` | `/api/admin/users` | Listar usuarios |
 | `GET` | `/api/admin/users/:id` | Detalle de un usuario |
 | `PUT` | `/api/admin/users/:id` | Actualizar datos del usuario |
-| `DELETE` | `/api/admin/users/:id` | Eliminar usuario |
-| `GET` | `/api/admin/users/estadisticas` | Conteo de trabajadores y distribución por rol |
+| `POST` | `/api/admin/users/create` | Crear nuevo usuario |
 
-La respuesta de `GET /api/admin/users/estadisticas` alimenta el widget de distribución de roles en el dashboard principal:
-
-```typescript
-{
-  data: {
-    trabajadores: number;
-    usuariosPorRol: Array<{ rol: string; count: number }>;
-  }
-}
-```
+Las estadísticas de usuarios (conteo de trabajadores y distribución por rol) provienen del endpoint principal del dashboard, `GET /api/admin/dashboard/estadisticas`, bajo el campo `usuarios` de la respuesta:
 
 ---
 
@@ -249,7 +240,7 @@ La página `/admin/firmas/monitor` usa `useMonitoreoFirmasRealTime` para ofrecer
 - **Detección automática de cambios**: cuando una solicitud cambia de estado entre ciclos de polling, el cambio se registra en `cambiosRecientes` con marca de tiempo.
 - **Control de polling**: el administrador puede pausar y reanudar el polling con `togglePolling()`.
 - **Filtro por estado**: el selector `estadoFiltro` permite ver solo las solicitudes en un estado específico (`PENDIENTE_FIRMADO`, `FIRMADO`, `RECHAZADO`, `EXPIRADO`, `CANCELADO` o todas).
-- **Consulta individual**: `consultarEstado(solicitudId)` refresca el estado de una solicitud específica vía `GET /api/solicitudes/:id/estado-firmado`.
+- **Consulta individual**: `consultarEstado(solicitudId)` refresca el estado de una solicitud específica vía `GET /api/admin/solicitudes/:id/estado-firmado`.
 
 ### Estadísticas del monitor
 

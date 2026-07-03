@@ -1,5 +1,5 @@
 ---
-title: "Firma Digital Electrónica con FirmaPlus en Comfaca Créditos"
+title: "Firma Digital con FirmaPlus en Comfaca Créditos en Línea"
 sidebarTitle: "Firma Digital"
 description: "Proceso de firma digital en Comfaca Créditos: integración con FirmaPlus API, firma OTP, monitoreo de estado y daemon nohup para seguimiento."
 ---
@@ -201,6 +201,11 @@ El monitor realiza polling cada **30 segundos** de forma silenciosa (sin mostrar
 const pollingInterval = ref(30000); // 30 segundos
 
 const iniciarPolling = () => {
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+  }
+
+  pollingEnabled.value = true;
   pollingTimer = setInterval(() => {
     if (pollingEnabled.value) {
       cargarSolicitudes(true); // silencioso = true

@@ -65,6 +65,11 @@ El composable actualiza el contador de no leídas periódicamente en segundo pla
 
 ```typescript
 const startPolling = (): void => {
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+  }
+
+  pollingEnabled.value = true;
   pollingTimer = setInterval(() => {
     if (pollingEnabled.value) {
       updateUnreadCount();

@@ -16,7 +16,7 @@ description: "Conoce la arquitectura, tecnologías clave y flujos de usuario de 
 
     1. **Registro y autenticación** — inicio de sesión con credenciales empresariales, recuperación de contraseña y gestión del perfil de usuario.
     2. **Solicitud de crédito** — selección de la línea de crédito, diligenciamiento del formulario y carga de los documentos requeridos.
-    3. **Seguimiento del estado** — visualización en tiempo real del estado de la solicitud a lo largo de su ciclo de vida: `POSTULADO` → `DOCUMENTOS_CARGADOS` → `PENDIENTE_FIRMADO` → `APROBADA`.
+    3. **Seguimiento del estado** — visualización en tiempo real del estado de la solicitud a lo largo de su ciclo de vida: `POSTULADO` → `DOCUMENTOS_CARGADOS` → `ENVIADO_VALIDACION` → `PENDIENTE_FIRMADO` → `FIRMADO` → `ENVIADO_PENDIENTE_APROBACION` → `APROBADA` (o `RECHAZADA` / `DESESTIMADA` / `CANCELADA` / `DESISTE` según el resultado).
     4. **Firma electrónica** — visualización de los documentos contractuales generados, firma con código OTP y descarga del comprobante firmado.
     5. **Descarga de documentos** — acceso a todos los documentos asociados a la solicitud una vez completado el proceso.
   </Tab>
@@ -39,10 +39,19 @@ description: "Conoce la arquitectura, tecnologías clave y flujos de usuario de 
 
 | Tecnología | Versión | Descripción |
 |---|---|---|
-| [Nuxt](https://nuxt.com/) | ^4.4.2 | Framework full-stack basado en Vue 3 |
-| [Vue](https://vuejs.org/) | ^3.5.33 | Framework UI progresivo y reactivo |
+| [Nuxt](https://nuxt.com/) | ^4.4.6 | Framework full-stack basado en Vue 3 |
+| [Vue](https://vuejs.org/) | ^3.5.35 | Framework UI progresivo y reactivo |
 | [TypeScript](https://www.typescriptlang.org/) | ^6.0.3 | Tipado estático sobre JavaScript |
-| [Tailwind CSS](https://tailwindcss.com/) | ^4.2.4 | Framework CSS utility-first |
+| [Tailwind CSS](https://tailwindcss.com/) | ^4.3.0 | Framework CSS utility-first |
+
+### UI/UX
+
+| Tecnología | Versión | Descripción |
+|---|---|---|
+| [Nuxt UI](https://ui.nuxt.com/) | ^4.8.1 | Biblioteca de componentes UI para Nuxt |
+| [@lucide/vue](https://lucide.dev/) | ^1.17.0 | Biblioteca de iconos SVG para Vue |
+| [Heroicons](https://heroicons.com/) | ^2.2.0 | Iconos SVG de Tailwind Labs |
+| [Radix Vue](https://www.radix-vue.com/) | ^1.9.17 | Primitivos UI accesibles sin estilos |
 
 ### Backend
 
@@ -51,14 +60,14 @@ description: "Conoce la arquitectura, tecnologías clave y flujos de usuario de 
 | [Prisma](https://www.prisma.io/) | ^7.8.0 | ORM para modelado y acceso a base de datos |
 | [MariaDB Adapter](https://www.prisma.io/docs/concepts/database-connectors/mariadb) | ^7.8.0 | Conector oficial de Prisma para MariaDB/MySQL |
 | [Nitro](https://nitro.unjs.io/) | Integrado | Engine de servidor HTTP incluido en Nuxt |
-| [Zod](https://zod.dev/) | ^4.3.6 | Validación de esquemas en endpoints de la API |
+| [Zod](https://zod.dev/) | ^4.4.3 | Validación de esquemas en endpoints de la API |
 
 ### Auth
 
 | Tecnología | Versión | Descripción |
 |---|---|---|
 | [nuxt-auth-utils](https://github.com/atinux/nuxt-auth-utils) | ^0.5.29 | Gestión de sesiones cifradas para Nuxt |
-| [jose](https://github.com/panva/jose) | ^6.2.2 | Implementación JWT (firma y verificación) |
+| [jose](https://github.com/panva/jose) | ^6.2.3 | Implementación JWT (firma y verificación) |
 | [bcryptjs](https://github.com/dcodeIO/bcrypt.js) | ^3.0.3 | Hash seguro de contraseñas con salt |
 
 ### Integraciones
@@ -69,6 +78,7 @@ description: "Conoce la arquitectura, tecnologías clave y flujos de usuario de 
 | **FirmaPlus** | Servicio externo de firma electrónica de documentos contractuales |
 | **FlaskPDF** | Microservicio de generación de documentos PDF |
 | **SFTP** | Transferencia segura de archivos firmados vía SSH |
+| **SMTP / Nodemailer** | Envío de correos transaccionales (notificaciones, OTP, recuperación de contraseña) vía Gmail u otro servidor SMTP |
 
 ---
 

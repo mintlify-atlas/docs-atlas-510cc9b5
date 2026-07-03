@@ -1,7 +1,7 @@
 ---
 title: "Configurar Base de Datos MariaDB para Comfaca Créditos"
 sidebarTitle: "Base de Datos"
-description: "Configura MariaDB o MySQL, ejecuta migraciones Prisma y carga los datos semilla para Comfaca Créditos en Línea."
+description: "Configura MariaDB o MySQL, ejecuta migraciones con Prisma y carga los datos semilla necesarios para operar Comfaca Créditos en Línea."
 ---
 
 Comfaca Créditos en Línea usa **Prisma ORM** como capa de acceso a datos sobre una base de datos **MariaDB** o **MySQL**. El cliente Prisma se genera en `prisma/generated/prisma` y las migraciones viven en `prisma/migrations/`. Esta página explica cómo preparar la base de datos desde cero hasta tener datos de prueba listos.
@@ -129,6 +129,16 @@ Todos los comandos están definidos en `package.json` y se ejecutan con `pnpm`:
     ```
 
     Equivalente a `prisma migrate reset --schema=./prisma/schema.prisma`.
+  </Step>
+
+  <Step title="Introspección del esquema existente">
+    Lee el esquema de la base de datos activa e importa su estructura al archivo `schema.prisma`. Útil para sincronizar el esquema de Prisma con una base de datos ya existente que no fue creada con migraciones.
+
+    ```bash
+    pnpm db:pull
+    ```
+
+    Equivalente a `prisma db pull`.
   </Step>
 
 </Steps>

@@ -230,29 +230,34 @@ export default defineEventHandler(async (event) => {
   const session = await getUserSession(event).catch(() => null);
   if (!session?.user?.username) return;
 
-  // Obtener límite configurable desde la tabla de configuraciones
-  const limiteStr = await configurationsService().getConfigurationByKey("limite_solicitudes");
-  const limite = limiteStr ? parseInt(limiteStr, 10) : 10;
+  try {
+    // Obtener límite configurable desde la tabla de configuraciones
+    const limiteStr = await configurationsService().getConfigurationByKey("limite_solicitudes");
+    const limite = limiteStr ? parseInt(limiteStr, 10) : 10;
 
-  if (isNaN(limite) || limite <= 0) return;
+    if (isNaN(limite) || limite <= 0) return;
 
-  const count = await prisma.solicitudes_credito.count({
-    where: {
-      owner_username: session.user.username,
-      estado: { in: SOLICITUDES_ACTIVAS_ESTADOS }
-    }
-  });
+    const count = await prisma.solicitudes_credito.count({
+      where: {
+        owner_username: session.user.username,
+        estado: { in: SOLICITUDES_ACTIVAS_ESTADOS }
+      }
+    });
 
-  if (count >= limite) {
-    setResponseStatus(event, 422);
-    event.node.res.end(
-      JSON.stringify(
-        CustomResponse.error(
-          `Has alcanzado el límite de ${limite} solicitudes activas.`,
-          "Límite de solicitudes alcanzado"
+    if (count >= limite) {
+      setResponseStatus(event, 422);
+      event.node.res.end(
+        JSON.stringify(
+          CustomResponse.error(
+            `Has alcanzado el límite de ${limite} solicitudes activas. Completa o cancela una solicitud existente antes de crear una nueva.`,
+            "Límite de solicitudes alcanzado"
+          )
         )
-      )
-    );
+      );
+    }
+  } catch (error) {
+    // Si falla la consulta de config, no bloquear la operación (fail open)
+    console.error("[validateSolicitudLimit] Error validando límite:", error);
   }
 });
 ```

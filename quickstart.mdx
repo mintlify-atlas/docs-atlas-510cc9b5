@@ -148,14 +148,17 @@ Todos los scripts se ejecutan con `pnpm <script>`. A continuación, el listado c
 | `db:generate` | `prisma generate` | Genera el cliente Prisma desde el esquema |
 | `db:push` | `prisma db push` | Sincroniza el esquema con la BD sin migraciones |
 | `db:pull` | `prisma db pull` | Introspección: genera el esquema desde la BD existente |
-| `db:migrate` | `prisma migrate dev` | Crea y aplica migraciones en modo desarrollo |
-| `db:reset` | `prisma migrate reset` | Reinicia la BD y vuelve a aplicar todas las migraciones |
+| `db:migrate` | `prisma migrate dev --schema=./prisma/schema.prisma` | Crea y aplica migraciones en modo desarrollo |
+| `db:reset` | `prisma migrate reset --schema=./prisma/schema.prisma` | Reinicia la BD y vuelve a aplicar todas las migraciones |
 | `db:seed` | `prisma db seed` | Ejecuta los seeders de datos iniciales |
 | `test` | `vitest` | Ejecuta todos los tests en modo watch |
 | `test:ui` | `vitest --ui` | Abre la interfaz visual de Vitest en el navegador |
 | `test:unit` | `vitest run` | Ejecuta los tests unitarios una sola vez |
+| `test:unit:server` | `vitest run --project server-unit` | Ejecuta únicamente los tests unitarios del servidor |
+| `test:unit:client` | `vitest run --project client-unit` | Ejecuta únicamente los tests unitarios del cliente |
 | `test:integration` | `vitest run --project integration` | Ejecuta las pruebas de integración de la API |
 | `test:e2e` | `playwright test` | Ejecuta las pruebas end-to-end con Playwright |
+| `test:e2e:ui` | `playwright test --ui` | Abre la interfaz visual de Playwright en el navegador |
 | `test:coverage` | `vitest run --coverage` | Genera reporte de cobertura de código |
 | `nohup:firmas` | `tsx server/nohup/app.ts` | Inicia el proceso de monitoreo de firmas en primer plano |
 | `nohup:firmas:daemon` | `nohup pnpm nohup:firmas >> storage/logs/nohup-firmas.log 2>&1 &` | Inicia el monitor de firmas como proceso en segundo plano (daemon) |

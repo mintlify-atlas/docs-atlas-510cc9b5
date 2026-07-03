@@ -43,7 +43,9 @@ API_FIRMA_BASIC_PASSWORD=""
 API_FIRMA_CLIENT_ID=
 API_FIRMA_PASSWORD=
 
-API_FLASKPDF_URL="http://"
+API_FLASKPDF_ENV=dev
+API_FLASKPDF_URL_PRO="http://"
+API_FLASKPDF_URL_DEV="http://"
 API_FLASKPDF_USER=""
 API_FLASKPDF_PASSWORD=""
 
@@ -100,6 +102,10 @@ Variables que controlan el comportamiento global de la aplicación Nuxt.
 
 <ParamField path="NUXT_HOST" type="string" default="localhost">
   Host de enlace del servidor de desarrollo. Usa `0.0.0.0` para exponer en red local.
+</ParamField>
+
+<ParamField path="NITRO_PRESET" type="string" default="node">
+  Preset de Nitro para la compilación del servidor. El valor `node` genera un servidor Node.js estándar compatible con PM2, nohup y despliegues VPS. Otros valores válidos incluyen `node-server`, `bun` o `cloudflare`. Normalmente no necesitas cambiarlo salvo que despliegues en una plataforma de hosting específica.
 </ParamField>
 
 <ParamField path="NUXT_SESSION_PASSWORD" type="string" required>
@@ -208,8 +214,16 @@ Variables para la integración con FirmaPlus, la plataforma de firma digital de 
 
 Variables para el microservicio Python de generación de PDFs contractuales.
 
-<ParamField path="API_FLASKPDF_URL" type="string" required>
-  URL base del microservicio FlaskPDF. Ejemplo: `http://localhost:5000`. Toda llamada se realiza contra el endpoint `POST /creditos/generate-pdf`.
+<ParamField path="API_FLASKPDF_ENV" type="string" default="dev">
+  Selector de entorno activo. `pro` → usa `API_FLASKPDF_URL_PRO`; cualquier otro valor → `API_FLASKPDF_URL_DEV`.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_URL_PRO" type="string" required>
+  URL base del microservicio FlaskPDF en producción. Ejemplo: `http://10.0.0.30:5000`. Toda llamada se realiza contra el endpoint `POST /creditos/generate-pdf`.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_URL_DEV" type="string" required>
+  URL base del microservicio FlaskPDF en desarrollo. Ejemplo: `http://localhost:5000`.
 </ParamField>
 
 <ParamField path="API_FLASKPDF_USER" type="string" required>

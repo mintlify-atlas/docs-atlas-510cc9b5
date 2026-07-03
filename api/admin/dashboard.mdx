@@ -32,10 +32,6 @@ Este endpoint no acepta parámetros de consulta. Siempre devuelve las estadísti
   `"Consulta completada exitosamente"`.
 </ResponseField>
 
-<ResponseField name="ultimaActualizacion" type="string">
-  Timestamp ISO 8601 del momento en que se generó la respuesta. Útil para mostrar en el dashboard cuándo se actualizaron los datos por última vez.
-</ResponseField>
-
 <ResponseField name="data" type="object">
   <Expandable title="Estructura completa de data">
 
@@ -163,6 +159,10 @@ Este endpoint no acepta parámetros de consulta. Siempre devuelve las estadísti
       </Expandable>
     </ResponseField>
 
+    <ResponseField name="ultimaActualizacion" type="string">
+      Timestamp ISO 8601 del momento en que se generaron las estadísticas. Útil para mostrar en el dashboard cuándo se actualizaron los datos por última vez.
+    </ResponseField>
+
   </Expandable>
 </ResponseField>
 
@@ -260,48 +260,79 @@ curl -X GET "https://app.comfaca.com/api/admin/dashboard/estadisticas" \
           "created_at": "2024-11-15T09:00:00.000Z"
         }
       ]
-    }
-  },
-  "ultimaActualizacion": "2024-11-15T17:30:00.000Z",
-  "timestamp": "2024-11-15T17:30:00.000Z"
+    },
+    "ultimaActualizacion": "2024-11-15T17:30:00.000Z"
+  }
 }
 ```
 
 ---
 
-## Tipo `AdminStats`
+## Tipo `DashboardStats`
 
-Estructura TypeScript del objeto de estadísticas utilizado por el composable del dashboard:
+Estructura TypeScript del objeto de estadísticas que devuelve el endpoint (campo `data`):
 
 ```typescript
-interface AdminStats {
-  totalSolicitudes: number
-  solicitudesActivas: number
-  conveniosActivos: number
-  trabajadoresRegistrados: number
-  solicitudesPendientesFirma: number
-  tasaAprobacion: number
-  montoTotalAprobado: number
-  solicitudesPorEstado: Array<{
-    estado: string
-    count: number
-    color: string
-  }>
-  actividadReciente: Array<{
-    id: string
-    tipo: string
-    descripcion: string
-    fecha: string
-  }>
-  usuariosPorRol: Array<{
-    rol: string
-    count: number
-  }>
-  topEmpresas: Array<{
-    nombre: string
-    trabajadores: number
-    convenio: string
-  }>
+interface DashboardStats {
+  solicitudes: {
+    total: number
+    aprobadas: number
+    activas: number
+    pendientesFirma: number
+    montoTotalAprobado: Decimal | null
+    tasaAprobacion: number
+    porEstado: Array<{
+      estado: string
+      nombre: string
+      count: string      // serializado como string
+      color: string
+    }>
+    porMes: Array<{
+      mes: string        // formato "YYYY-MM"
+      nombre: string     // ej. "noviembre de 2024"
+      count: number
+    }>
+  }
+  convenios: {
+    activos: string      // serializado como string
+    totalEmpresas: string
+    topEmpresas: Array<{
+      razon_social: string
+      nit: string
+      numero_empleados: string
+      tipo_empresa: string | null
+    }>
+    porTipo: Array<{
+      tipo_empresa: string | null
+      count: string
+    }>
+  }
+  usuarios: {
+    total: number
+    activos: number
+    recientes: number
+    trabajadores: string | undefined
+    porRol: Array<{
+      role: string
+      count: string
+    }>
+  }
+  actividadReciente: {
+    solicitudesRecientes: Array<{
+      numero_solicitud: string | null
+      estado: string
+      created_at: Date
+      owner_username: string
+    }>
+    usuariosRecientes: Array<{
+      username: string
+      created_at: Date | null
+      roles: unknown
+      numero_documento: string | null
+      full_name: string | null
+    }>
+  }
+  ultimaActualizacion: string  // ISO 8601
 }
 ```
 

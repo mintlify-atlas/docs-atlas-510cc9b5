@@ -69,7 +69,7 @@ Si la consulta a la configuración `status_online` falla (por ejemplo, por un er
 ### Ejemplo curl
 
 ```bash
-curl -X GET "https://tu-dominio.com/api/health"
+curl -X GET "https://app.comfaca.com/api/health"
 ```
 
 ---
@@ -86,7 +86,7 @@ Ejemplo de configuración para **UptimeRobot**:
 
 ```
 Monitor Type: HTTP(s) - Keyword
-URL: https://tu-dominio.com/api/health
+URL: https://app.comfaca.com/api/health
 Keyword: "ok"
 Interval: 5 minutes
 Alert when: keyword not found OR status != 200
@@ -103,7 +103,7 @@ scrape_configs:
       module: [http_2xx]
     static_configs:
       - targets:
-          - https://tu-dominio.com/api/health
+          - https://app.comfaca.com/api/health
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -194,20 +194,20 @@ Además del health check, la aplicación expone varios endpoints de catálogo y 
 
 ```bash
 # Health check básico
-curl -X GET "https://tu-dominio.com/api/health"
+curl -X GET "https://app.comfaca.com/api/health"
 
 # Convenio activo (público)
-curl -X GET "https://tu-dominio.com/api/convenios/activo"
+curl -X GET "https://app.comfaca.com/api/convenios/activo"
 
 # Tipos de crédito disponibles
-curl -X GET "https://tu-dominio.com/api/lineas_credito/tipo-creditos"
+curl -X GET "https://app.comfaca.com/api/lineas_credito/tipo-creditos"
 
 # Parámetros de líneas de crédito
-curl -X GET "https://tu-dominio.com/api/lineas_credito/parametros"
+curl -X GET "https://app.comfaca.com/api/lineas_credito/parametros"
 
 # Catálogo de tipos de documento
-curl -X GET "https://tu-dominio.com/api/parametros/tipos-documento"
+curl -X GET "https://app.comfaca.com/api/parametros/tipos-documento"
 
 # Roles disponibles
-curl -X GET "https://tu-dominio.com/api/parametros/roles"
+curl -X GET "https://app.comfaca.com/api/parametros/roles"
 ```

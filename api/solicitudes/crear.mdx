@@ -90,8 +90,14 @@ El payload es un objeto JSON con las secciones del wizard. Todas las secciones e
     <ParamField body="solicitante.nit" type="string">
       NIT de la empresa (aplica solo para personas jurídicas).
     </ParamField>
+    <ParamField body="solicitante.pais_nacimiento" type="string">
+      Código del país de nacimiento del solicitante (ej. `"CO"`).
+    </ParamField>
     <ParamField body="solicitante.fecha_nacimiento" type="string">
       Fecha de nacimiento en formato ISO 8601 (`"YYYY-MM-DD"`).
+    </ParamField>
+    <ParamField body="solicitante.fecha_expedicion" type="string">
+      Fecha de expedición del documento de identidad en formato ISO 8601 (`"YYYY-MM-DD"`).
     </ParamField>
     <ParamField body="solicitante.genero" type="string">
       Género del solicitante: `"M"` (Masculino), `"F"` (Femenino), `"O"` (Otro).
@@ -101,6 +107,9 @@ El payload es un objeto JSON con las secciones del wizard. Todas las secciones e
     </ParamField>
     <ParamField body="solicitante.nivel_educativo" type="string">
       Nivel educativo: `"primaria"`, `"bachillerato"`, `"tecnico"`, `"universitario"`, `"posgrado"`, `"ninguno"`.
+    </ParamField>
+    <ParamField body="solicitante.profesion" type="string">
+      Profesión u ocupación del solicitante.
     </ParamField>
     <ParamField body="solicitante.email" type="string">
       Correo electrónico del solicitante.

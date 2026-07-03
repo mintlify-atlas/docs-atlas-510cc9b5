@@ -51,10 +51,10 @@ La clave `form_contact` almacena un objeto JSON con los datos de contacto:
 
 ## GET /api/configurations
 
-Retorna todas las configuraciones del sistema que tienen `editable: true`, ordenadas por categoría. **Requiere rol de administrador o permiso `system.admin`.**
+Retorna todas las configuraciones del sistema que tienen `editable: true`, ordenadas por categoría.
 
 <Note>
-  Este endpoint está protegido. La autenticación se verifica a través de la cookie de sesión y el rol del usuario debe ser `administrator` o tener el permiso `system.admin`.
+  Este endpoint no lleva verificación de sesión propia en el handler. El acceso desde el panel administrativo se controla a nivel de cliente/UI. Para operaciones de escritura sobre configuraciones, usa `PUT /api/configurations/:clave`, que sí requiere rol `administrator` o permiso `system.admin`.
 </Note>
 
 ### Respuesta exitosa `200`
@@ -113,7 +113,7 @@ Retorna todas las configuraciones del sistema que tienen `editable: true`, orden
 ### Ejemplo curl
 
 ```bash
-curl -X GET "https://tu-dominio.com/api/configurations" \
+curl -X GET "https://app.comfaca.com/api/configurations" \
   -H "Cookie: nuxt-session=<token-admin>"
 ```
 
@@ -177,19 +177,19 @@ Actualiza el valor de una configuración existente por su clave. Solo disponible
 
 ```bash
 # Actualizar el límite máximo de cuotas
-curl -X PUT "https://tu-dominio.com/api/configurations/limite_cuotas" \
+curl -X PUT "https://app.comfaca.com/api/configurations/limite_cuotas" \
   -H "Cookie: nuxt-session=<token-admin>" \
   -H "Content-Type: application/json" \
   -d '{"valor": "48"}'
 
 # Poner el sistema en modo mantenimiento
-curl -X PUT "https://tu-dominio.com/api/configurations/status_online" \
+curl -X PUT "https://app.comfaca.com/api/configurations/status_online" \
   -H "Cookie: nuxt-session=<token-admin>" \
   -H "Content-Type: application/json" \
   -d '{"valor": "false"}'
 
 # Actualizar datos de contacto (tipo json)
-curl -X PUT "https://tu-dominio.com/api/configurations/form_contact" \
+curl -X PUT "https://app.comfaca.com/api/configurations/form_contact" \
   -H "Cookie: nuxt-session=<token-admin>" \
   -H "Content-Type: application/json" \
   -d '{"valor": "{\"email\":\"nuevo@comfaca.com\",\"telefono\":\"7654321\"}"}'
@@ -255,13 +255,13 @@ Retorna los datos de una configuración específica **sin requerir autenticació
 
 ```bash
 # Verificar si el sistema está en línea (útil en la página de login)
-curl -X GET "https://tu-dominio.com/api/public/configurations/status_online"
+curl -X GET "https://app.comfaca.com/api/public/configurations/status_online"
 
 # Obtener datos de contacto para el formulario público
-curl -X GET "https://tu-dominio.com/api/public/configurations/form_contact"
+curl -X GET "https://app.comfaca.com/api/public/configurations/form_contact"
 
 # Verificar si las notificaciones de firma están habilitadas
-curl -X GET "https://tu-dominio.com/api/public/configurations/notificacion_firma"
+curl -X GET "https://app.comfaca.com/api/public/configurations/notificacion_firma"
 ```
 
 ### Uso en Nuxt 4 (frontend)

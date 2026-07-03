@@ -215,6 +215,96 @@ curl -X POST http://localhost:4000/api/auth/recovery \
 
 ---
 
+## POST /api/validacion/codigo-firma
+
+Valida un código de 6 dígitos enviado por el afiliado durante el proceso de firma digital. Si el código es correcto, invoca el servicio de Sisuweb para crear las claves de firma digital (`keypublic`, `keyprivate`, `certificado`) asociadas al usuario autenticado.
+
+**Autenticación:** Requiere cookie de sesión válida.
+
+### Cuerpo de la petición
+
+El cuerpo de la petición se valida con **Zod** antes de procesarse.
+
+<ParamField body="codigo" type="string" required>
+  Código de firma de exactamente **6 caracteres** recibido por el afiliado. La validación Zod aplica `z.string().length(6)`.
+</ParamField>
+
+### Respuestas
+
+<ResponseField name="success" type="boolean">
+  `true` cuando el código es válido y las claves de firma digital fueron generadas exitosamente.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Datos obtenidos exitosamente."` en caso de éxito.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Claves de la firma digital generada para el usuario.
+
+  <Expandable title="Propiedades de data">
+    <ResponseField name="data.certificado" type="string | null">
+      Certificado digital generado por el servicio de Sisuweb. `null` si el servicio no lo devolvió.
+    </ResponseField>
+    <ResponseField name="data.keypublic" type="string | null">
+      Clave pública del par de claves de firma. `null` si el servicio no lo devolvió.
+    </ResponseField>
+    <ResponseField name="data.keyprivate" type="string | null">
+      Clave privada del par de claves de firma. `null` si el servicio no lo devolvió.
+    </ResponseField>
+    <ResponseField name="data.passowrd" type="string | null">
+      Contraseña de la clave privada tal como la devuelve el servicio (nótese la ortografía `passowrd`, que refleja el campo original de Sisuweb). `null` si el servicio no lo devolvió.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Tabla de errores
+
+| Código HTTP | Causa | Descripción |
+|-------------|-------|-------------|
+| `200` | Código inválido | El cuerpo no pasa la validación Zod (`codigo` ausente o con longitud distinta de 6). `success: false` en el cuerpo. |
+| `401` | Sin sesión | No hay cookie de sesión o la sesión ha expirado. |
+| `200` | Error interno | El servicio de Sisuweb falló o el usuario no fue encontrado. `success: false` en el cuerpo. |
+
+<Note>
+  Este endpoint devuelve `200` incluso en algunos errores de validación o de servicio, con `success: false` en el cuerpo de la respuesta. El cliente debe verificar siempre el campo `success` antes de usar el resultado.
+</Note>
+
+### Ejemplo — cURL
+
+```bash
+curl -X POST http://localhost:4000/api/validacion/codigo-firma \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt \
+  -d '{"codigo": "482931"}'
+```
+
+### Ejemplo — Respuesta exitosa `200`
+
+```json
+{
+  "success": true,
+  "message": "Datos obtenidos exitosamente.",
+  "data": {
+    "certificado": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...",
+    "keypublic": "-----BEGIN PUBLIC KEY-----\nMIIBIjAN...",
+    "keyprivate": "-----BEGIN PRIVATE KEY-----\nMIIEvAIB...",
+    "passowrd": "482931"
+  }
+}
+```
+
+### Ejemplo — Error de validación (código inválido)
+
+```json
+{
+  "success": false,
+  "message": "Código inválido o faltante"
+}
+```
+
+---
+
 ## Duración de la sesión
 
 La sesión de Comfaca Créditos tiene una duración de **8 horas** configuradas en `nuxt.config.ts`:

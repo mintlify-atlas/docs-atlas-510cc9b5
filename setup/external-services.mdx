@@ -1,7 +1,7 @@
 ---
 title: "Integrar Servicios Externos: SISU, FirmaPlus y FlaskPDF"
 sidebarTitle: "Servicios Externos"
-description: "Configura las integraciones con API SISU, FirmaPlus, FlaskPDF, SFTP y el servicio de correo SMTP en Comfaca Créditos."
+description: "Configura las integraciones con API SISU, FirmaPlus, FlaskPDF, SFTP y el servicio de correo SMTP para el flujo completo de Comfaca Créditos."
 ---
 
 Comfaca Créditos en Línea depende de cuatro integraciones externas para operar su flujo completo de solicitud de crédito: **API SISU** para la validación de afiliados, **FirmaPlus** para la firma digital de contratos, **FlaskPDF** para la generación de documentos PDF y **SFTP** para el almacenamiento remoto de archivos. Adicionalmente, el servicio de **correo SMTP** gestiona todas las notificaciones transaccionales hacia los usuarios. Esta página describe cómo configurar cada uno.
@@ -163,8 +163,16 @@ const result = await flaskpdf.generatePdf(datosSolicitud);
 
 ### Variables de entorno
 
-<ParamField path="API_FLASKPDF_URL" type="string" required>
-  URL base del microservicio FlaskPDF. Ejemplo: `http://localhost:5000`. El servicio llamará a `POST {API_FLASKPDF_URL}/creditos/generate-pdf`.
+<ParamField path="API_FLASKPDF_ENV" type="string" default="dev">
+  Selector de entorno activo. `pro` → usa `API_FLASKPDF_URL_PRO`; cualquier otro valor → `API_FLASKPDF_URL_DEV`.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_URL_PRO" type="string" required>
+  URL base del microservicio FlaskPDF en producción. Ejemplo: `http://10.0.0.30:5000`. El servicio llamará a `POST {URL}/creditos/generate-pdf`.
+</ParamField>
+
+<ParamField path="API_FLASKPDF_URL_DEV" type="string" required>
+  URL base del microservicio FlaskPDF en desarrollo. Ejemplo: `http://localhost:5000`.
 </ParamField>
 
 <ParamField path="API_FLASKPDF_USER" type="string" required>
@@ -178,7 +186,10 @@ const result = await flaskpdf.generatePdf(datosSolicitud);
 ### Ejemplo de configuración
 
 ```ini
-API_FLASKPDF_URL="http://localhost:5000"
+# Desarrollo
+API_FLASKPDF_ENV=dev
+API_FLASKPDF_URL_PRO="http://10.0.0.30:5000"
+API_FLASKPDF_URL_DEV="http://localhost:5000"
 API_FLASKPDF_USER="pdf_service"
 API_FLASKPDF_PASSWORD="clave_interna_segura"
 ```

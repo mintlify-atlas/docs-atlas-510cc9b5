@@ -32,7 +32,7 @@ Comfaca Créditos en Línea cuenta con una estrategia de testing multicapa que c
   <Tab title="Unitarias">
     Las pruebas unitarias validan funciones, composables y servicios de forma aislada, sin levantar el servidor ni realizar peticiones reales.
 
-    Se ubican en `tests/unit/` y se ejecutan con el proyecto `server-unit` (entorno Node) y `client-unit` (entorno `happy-dom`) definidos en `vitest.config.ts`.
+    Se ubican en `tests/unit/` y se ejecutan con los scripts `test:unit:server` (entorno Node) y `test:unit:client` (entorno `happy-dom`) definidos en `package.json`.
 
     ```bash
     # Ejecutar todas las pruebas unitarias
@@ -108,6 +108,7 @@ tests/
 │       └── solicitudes/
 │           ├── generar-pdf.spec.ts
 │           └── guardar-solicitud.spec.ts
+├── mocks/               # Fixtures JSON para tests
 ├── unit/                # Pruebas unitarias de servicios y composables
 └── e2e/                 # Pruebas de extremo a extremo con Playwright
     └── reports/         # Reportes HTML generados por Playwright
@@ -123,10 +124,11 @@ La siguiente tabla resume los endpoints cubiertos por la suite de integración, 
 | `POST /api/solicitudes/guardar-solicitud` | 15 | Creación de solicitudes con validación Zod. Cubre casos felices, campos faltantes, tipos incorrectos y conflictos de negocio. |
 | `POST /api/auth/register` | 14 | Registro de usuarios con mock del servicio de email. Prueba validaciones de contraseña, unicidad de usuario y envío de correo de bienvenida. |
 | `GET /api/admin/convenios/:id` | 6 | Consulta de convenios con autenticación de administrador. Valida autorización por rol, convenio inexistente y formato de respuesta. |
+| `GET /api/user/perfil` | 9 | Perfil del usuario autenticado. Valida autenticación por cookie de sesión y por header `Authorization`, estructura de la respuesta y campos personales. |
 
 ## Configuración de Vitest
 
-El archivo `vitest.config.ts` utiliza `defineVitestConfig` de `@nuxt/test-utils` para heredar la configuración de Vite/Nuxt y expone tres proyectos independientes:
+El archivo `vitest.config.ts` utiliza `defineVitestConfig` de `@nuxt/test-utils` para heredar la configuración de Vite/Nuxt. No define proyectos Vitest separados; los scripts de `package.json` pasan el flag `--project` directamente para segmentar la ejecución:
 
 ```typescript
 import { defineVitestConfig } from "@nuxt/test-utils/config";
@@ -136,8 +138,10 @@ export default defineVitestConfig({
     setupFiles: ["./tests/setup/global.ts"],
     alias: {
       "~": new URL("./app/", import.meta.url).pathname,
+      "~/**": new URL("./app/", import.meta.url).pathname,
       "~~": new URL("./", import.meta.url).pathname,
       "@": new URL("./app/", import.meta.url).pathname,
+      "@/**": new URL("./app/", import.meta.url).pathname,
       "@tests": new URL("./tests/", import.meta.url).pathname
     },
     exclude: ["**/node_modules/**", "**/.nuxt/**", "**/dist/**", "tests/e2e/**", "tests/integration/**"],
@@ -168,11 +172,11 @@ export default defineVitestConfig({
 });
 ```
 
-| Proyecto | Descripción |
-|---|---|
-| `server-unit` | Pruebas unitarias del código del servidor Nitro (Node.js) |
-| `client-unit` | Pruebas unitarias de componentes Vue con `happy-dom` |
-| `integration` | Pruebas de integración HTTP contra el servidor levantado en puerto 4000 |
+| Script | Flag `--project` | Descripción |
+|---|---|---|
+| `pnpm test:unit:server` | `server-unit` | Pruebas unitarias del código del servidor Nitro (Node.js) |
+| `pnpm test:unit:client` | `client-unit` | Pruebas unitarias de componentes Vue con `happy-dom` |
+| `pnpm test:integration` | `integration` | Pruebas de integración HTTP contra el servidor levantado en puerto 4000 |
 
 Los umbrales de cobertura exigen un mínimo de **80 %** en líneas, funciones y sentencias, y **75 %** en ramas. El reporte se genera en `./coverage/` en formatos `text`, `json`, `html` y `lcov`.
 

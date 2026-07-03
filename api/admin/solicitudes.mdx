@@ -30,18 +30,6 @@ Lista todas las solicitudes de crédito con soporte de paginación y filtros opc
   Número de solicitudes a omitir para la paginación (offset). Debe ser un entero no negativo.
 </ParamField>
 
-<ParamField query="fecha_desde" type="string">
-  Fecha de inicio del rango de búsqueda en formato ISO 8601 (`YYYY-MM-DD`).
-</ParamField>
-
-<ParamField query="fecha_hasta" type="string">
-  Fecha de fin del rango de búsqueda en formato ISO 8601 (`YYYY-MM-DD`).
-</ParamField>
-
-<ParamField query="search" type="string">
-  Búsqueda de texto libre sobre `numero_solicitud`, `owner_username` o `numero_documento` del solicitante.
-</ParamField>
-
 ### Response
 
 <ResponseField name="success" type="boolean">
